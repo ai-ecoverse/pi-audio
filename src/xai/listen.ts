@@ -99,11 +99,14 @@ function applyListen(
       push({ type: 'speech_start', at: start === undefined ? 0 : start * 1000 });
     }
     if (event.is_final === true) {
+      const segmentId = String(state.segment);
       state.segment += 1;
       state.turns.push(spoken);
-      const segmentId = String(state.segment);
       push({ type: 'final', segmentId, text: spoken });
-      if (event.speech_final === true) push({ type: 'turn_end', text: spoken, at: 0 });
+      if (event.speech_final === true) {
+        state.started = false;
+        push({ type: 'turn_end', text: spoken, at: 0 });
+      }
       return;
     }
     push({ type: 'partial', segmentId: String(state.segment), text: spoken });
