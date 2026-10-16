@@ -5,6 +5,7 @@ import { blankUsage } from './blank-usage.ts';
 import { VoiceRequestError } from './errors.ts';
 import type { TranscriptionModel } from './models.ts';
 import { streamResult } from './stream-result.ts';
+import type { VadHook } from './vad.ts';
 
 export type AudioInput = { data: Uint8Array; mimeType: string } | { url: string };
 
@@ -33,6 +34,7 @@ export type TranscriptionEvent =
 export interface ListenOptions extends ProviderRequestOptions {
   language?: string;
   vocabulary?: string[];
+  vad?: VadHook;
 }
 
 function blankTranscript(): Transcript {
