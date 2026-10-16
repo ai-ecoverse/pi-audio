@@ -50,3 +50,5 @@ export function registerXaiRealtime(options: AdapterOptions = {}): () => void {
     unregisterApi();
   };
 }
+
+export { registerXAI } from './catalog.ts';
