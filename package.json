@@ -89,6 +89,10 @@
     "./brain": {
       "types": "./dist/types/brain/index.d.ts",
       "default": "./dist/brain/index.js"
+    },
+    "./webrtc-aec": {
+      "types": "./dist/types/webrtc-aec/index.d.ts",
+      "default": "./dist/webrtc-aec/index.js"
     }
   },
   "files": [
@@ -110,6 +114,7 @@
   },
   "devDependencies": {
     "@ai-ecoverse/slicc-shared-web": "1.21.1",
+    "@ai-ecoverse/wasm-webrtc-audio-processing": "2.1.0-1",
     "@biomejs/biome": "2.5.15",
     "@earendil-works/pi-ai": "1.1.0",
     "@earendil-works/pi-durable": "1.1.0",
@@ -123,12 +128,16 @@
     "typescript": "7.0.2"
   },
   "peerDependencies": {
+    "@ai-ecoverse/wasm-webrtc-audio-processing": ">=2.1.0-1 <2.2.0",
     "@earendil-works/pi-ai": "1.1.0",
     "@earendil-works/pi-durable": "^1.1.0",
     "node-web-audio-api": "^2.2.0",
     "web-audio-api": "^1.6.0"
   },
   "peerDependenciesMeta": {
+    "@ai-ecoverse/wasm-webrtc-audio-processing": {
+      "optional": true
+    },
     "@earendil-works/pi-durable": {
       "optional": true
     },

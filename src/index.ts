@@ -18,7 +18,14 @@ export {
   decodeAudioBase64,
   encodeAudioBase64,
 } from './convert.ts';
-export type { EchoCanceller, EchoControl, EchoMode, EchoReport, MicOpen } from './echo.ts';
+export type {
+  EchoCanceller,
+  EchoControl,
+  EchoMode,
+  EchoReport,
+  EchoStats,
+  MicOpen,
+} from './echo.ts';
 export {
   assertNodeEcho,
   calibrateEcho,
