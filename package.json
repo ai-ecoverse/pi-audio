@@ -29,6 +29,10 @@
     "./faux": {
       "types": "./dist/types/faux/index.d.ts",
       "default": "./dist/faux/index.js"
+    },
+    "./worklet": {
+      "types": "./dist/types/worklet/convert.d.ts",
+      "default": "./dist/worklet/convert.js"
     }
   },
   "files": [
