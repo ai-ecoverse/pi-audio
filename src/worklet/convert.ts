@@ -1,5 +1,6 @@
 import type { AudioFormat } from '../audio.ts';
 import { convertAudio } from '../convert.ts';
+import { isWorkletRelease, WORKLET_RELEASE } from './release.ts';
 
 export const AUDIO_CONVERT_PROCESSOR = 'pi-audio-convert';
 
@@ -10,11 +11,16 @@ export interface AudioConvertProcessorOptions {
   };
 }
 
+interface WorkletPort {
+  postMessage(message: unknown): void;
+  onmessage: ((event: { data?: unknown }) => void) | null;
+}
+
 interface WorkletScope {
   AudioWorkletProcessor?: new (
     options?: AudioConvertProcessorOptions
   ) => {
-    port?: { postMessage(message: unknown): void };
+    port?: WorkletPort;
   };
   registerProcessor?: (
     name: string,
@@ -27,13 +33,15 @@ const scope = globalThis as WorkletScope;
 const WorkletBase =
   scope.AudioWorkletProcessor ??
   class {
-    port?: { postMessage(message: unknown): void };
+    port?: WorkletPort;
   };
 
 export class AudioConvertProcessor extends WorkletBase {
   readonly #format: AudioFormat;
   readonly #sampleRate: number;
   #frames = 0;
+  #released = false;
+  #posted = false;
   readonly #pending: Uint8Array[] = [];
 
   constructor(options?: AudioConvertProcessorOptions) {
@@ -48,9 +56,23 @@ export class AudioConvertProcessor extends WorkletBase {
       sampleRate !== undefined && Number.isFinite(sampleRate) && sampleRate > 0
         ? sampleRate
         : 48000;
+    const port = this.port;
+    if (port) {
+      port.onmessage = (event) => {
+        if (isWorkletRelease(event.data)) this.release();
+      };
+    }
+  }
+
+  release(): void {
+    this.#released = true;
   }
 
   process(inputs: Array<ArrayLike<Float32Array | undefined> | undefined>): boolean {
+    if (this.#released) {
+      this.#finish();
+      return true;
+    }
     const input = inputs[0];
     const channels: Float32Array[] = [];
     if (input) {
@@ -89,6 +111,14 @@ export class AudioConvertProcessor extends WorkletBase {
       timestamp: converted.timestamp,
     });
     return true;
+  }
+
+  #finish(): void {
+    if (this.#posted) return;
+    this.#posted = true;
+    const port = this.port;
+    if (!port) return;
+    port.postMessage({ type: WORKLET_RELEASE });
   }
 
   take(): Uint8Array[] {

@@ -105,6 +105,8 @@
     "@biomejs/biome": "2.5.15",
     "@earendil-works/pi-ai": "1.1.0",
     "@earendil-works/pi-durable": "1.1.0",
+    "node-web-audio-api": "2.2.0",
+    "web-audio-api": "1.6.0",
     "@types/node": "24.19.1",
     "esbuild": "0.28.2",
     "lefthook": "2.2.1",
@@ -114,10 +116,18 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "1.1.0",
-    "@earendil-works/pi-durable": "^1.1.0"
+    "@earendil-works/pi-durable": "^1.1.0",
+    "node-web-audio-api": "^2.2.0",
+    "web-audio-api": "^1.6.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-durable": {
+      "optional": true
+    },
+    "node-web-audio-api": {
+      "optional": true
+    },
+    "web-audio-api": {
       "optional": true
     }
   }
