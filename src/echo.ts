@@ -5,8 +5,14 @@ import type { EchoRecommendation } from './turns.ts';
 
 export type EchoMode = 'browser' | 'wasm' | 'none';
 
+export interface EchoStats {
+  delayMs: number | null;
+  cancellationDb: number | null;
+}
+
 export interface EchoCanceller {
   cancel(mic: AudioChunk, reference: AudioChunk): AudioChunk;
+  stats?(): EchoStats;
 }
 
 export interface EchoControl {
@@ -101,7 +107,8 @@ export async function calibrateEcho(
   mic: AudioSource,
   probe: Cue,
   durationMs: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  canceller?: EchoCanceller
 ): Promise<EchoReport> {
   if (signal.aborted) throw new VoiceRequestError('aborted', 'aborted');
   out.bed.play(probe, 0);
@@ -112,10 +119,65 @@ export async function calibrateEcho(
     const pair = await Promise.all([heard, reference]);
     let used = rate.value;
     if (used <= 0) used = 1;
-    return measureEcho(pair[1], pair[0], used);
+    const cleaned = applyCanceller(pair[0], pair[1], used, canceller);
+    return withStats(measureEcho(pair[1], cleaned.samples, used), cleaned.stats);
   } finally {
     out.bed.stop(0);
   }
+}
+
+function applyCanceller(
+  mic: Float32Array,
+  reference: Float32Array,
+  sampleRate: number,
+  canceller: EchoCanceller | undefined
+): { samples: Float32Array; stats?: EchoStats } {
+  if (canceller === undefined) return { samples: mic };
+  const cancelled = canceller.cancel(
+    floatChunk(mic, sampleRate),
+    floatChunk(reference, sampleRate)
+  );
+  return { samples: heardSamples(cancelled, mic), stats: readStats(canceller) };
+}
+
+function readStats(canceller: EchoCanceller): EchoStats | undefined {
+  if (canceller.stats === undefined) return undefined;
+  return canceller.stats();
+}
+
+function heardSamples(chunk: AudioChunk, fallback: Float32Array): Float32Array {
+  const decoded = samplesOf(chunk);
+  if (decoded.length === 0) return fallback;
+  return Float32Array.from(decoded);
+}
+
+function floatChunk(samples: Float32Array, sampleRate: number): AudioChunk {
+  const data = new Uint8Array(samples.length * 4);
+  const view = new DataView(data.buffer);
+  for (let index = 0; index < samples.length; index += 1) {
+    view.setFloat32(index * 4, samples[index] as number, true);
+  }
+  return {
+    data,
+    format: { encoding: 'pcmf32', sampleRate, channels: 1 },
+    timestamp: 0,
+  };
+}
+
+function withStats(report: EchoReport, stats: EchoStats | undefined): EchoReport {
+  if (stats === undefined) return report;
+  return {
+    delayMs: chosen(stats.delayMs, report.delayMs),
+    cancellationDb: chosen(stats.cancellationDb, report.cancellationDb),
+    residualDb: report.residualDb,
+    recommendation: report.recommendation,
+  };
+}
+
+function chosen(value: number | null, fallback: number): number {
+  if (value === null) return fallback;
+  if (!Number.isFinite(value)) return fallback;
+  return value;
 }
 
 function quiet(): EchoReport {
