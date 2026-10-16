@@ -30,6 +30,10 @@
       "types": "./dist/types/faux/index.d.ts",
       "default": "./dist/faux/index.js"
     },
+    "./openai-realtime": {
+      "types": "./dist/types/openai-realtime/index.d.ts",
+      "default": "./dist/openai-realtime/index.js"
+    },
     "./worklet": {
       "types": "./dist/types/worklet/convert.d.ts",
       "default": "./dist/worklet/convert.js"
@@ -37,6 +41,10 @@
     "./openai": {
       "types": "./dist/types/openai/index.d.ts",
       "default": "./dist/openai/index.js"
+    },
+    "./xai": {
+      "types": "./dist/types/xai/index.d.ts",
+      "default": "./dist/xai/index.js"
     }
   },
   "files": [
