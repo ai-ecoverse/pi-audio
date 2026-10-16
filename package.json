@@ -58,6 +58,10 @@
       "types": "./dist/types/fish/index.d.ts",
       "default": "./dist/fish/index.js"
     },
+    "./google": {
+      "types": "./dist/types/google/index.d.ts",
+      "default": "./dist/google/index.js"
+    },
     "./durable": {
       "types": "./dist/types/durable/index.d.ts",
       "default": "./dist/durable/index.js"
