@@ -1,4 +1,5 @@
 import type { JsonObject, ProviderRequestOptions, Tool } from '@earendil-works/pi-ai';
+import { elevenLabsCustomLlm } from '../custom-llm.ts';
 import { VoiceRequestError } from '../errors.ts';
 import {
   type CustomLlm,
@@ -91,14 +92,7 @@ function clientTool(tool: Tool, timeoutMs: number | undefined): JsonObject {
 }
 
 function customLlmFields(llm: CustomLlm): JsonObject {
-  const custom: JsonObject = {
-    url: llm.baseUrl,
-    model_id: llm.id,
-    api_type: llm.api === 'openai-responses' ? 'responses' : 'chat_completions',
-  };
-  const headers = llm.headers;
-  if (headers !== undefined && Object.keys(headers).length > 0) custom.request_headers = headers;
-  return { llm: 'custom-llm', custom_llm: custom };
+  return elevenLabsCustomLlm(llm);
 }
 
 function promptFields(spec: HostedAgentSpec): JsonObject {
