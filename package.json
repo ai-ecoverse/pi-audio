@@ -61,6 +61,10 @@
     "./gemini-live": {
       "types": "./dist/types/gemini-live/index.d.ts",
       "default": "./dist/gemini-live/index.js"
+    },
+    "./elevenlabs-agents": {
+      "types": "./dist/types/elevenlabs-agents/index.d.ts",
+      "default": "./dist/elevenlabs-agents/index.js"
     }
   },
   "files": [
