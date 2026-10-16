@@ -21,6 +21,8 @@ addAudioCounters(total, usage);
 
 pi-audio does not apply that patch. Hosts such as slicc-agent record monkeypatches in `patches/patches.json`.
 
+`@ai-ecoverse/pi-audio/openai` registers OpenAI and OpenRouter speech adapters when `registerOpenAI()` is called. Batch transcription posts multipart audio to `/audio/transcriptions`. OpenRouter (`provider` `openrouter`, or a base URL on `openrouter.ai`) posts JSON `input_audio` instead. Speech posts JSON to `/audio/speech` and reads the raw audio response. OpenAI can return pcm, mp3, wav, opus, or flac. OpenRouter returns pcm or mp3. Realtime transcription uses a WebSocket at `/realtime?intent=transcription` for `gpt-realtime-whisper` and `gpt-live-transcribe`. The catalog key is type, provider, and id, so the batch model keeps the id `gpt-4o-transcribe`.
+
 `convertAudio` and `convertAudioSource` convert between `AudioFormat`s: PCM16, float32, G.711 μ-law and A-law, mono and stereo, sample rate, and PCM16 WAV. Opus, MP3 and FLAC pass through only when the format does not change. `encodeAudioBase64` and `decodeAudioBase64` are the wire helpers for JSON protocols. `AudioChunk.data` stays binary. The same converter runs in an AudioWorklet from `@ai-ecoverse/pi-audio/worklet` (`AUDIO_CONVERT_PROCESSOR`, `registerAudioConvertWorklet`). Adapters declare `inputFormats` and `outputFormats` and do not resample on their own.
 
 ## Development

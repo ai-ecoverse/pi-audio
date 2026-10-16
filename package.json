@@ -33,6 +33,10 @@
     "./worklet": {
       "types": "./dist/types/worklet/convert.d.ts",
       "default": "./dist/worklet/convert.js"
+    },
+    "./openai": {
+      "types": "./dist/types/openai/index.d.ts",
+      "default": "./dist/openai/index.js"
     }
   },
   "files": [
