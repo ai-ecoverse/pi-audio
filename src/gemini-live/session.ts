@@ -264,6 +264,8 @@ class GeminiSession implements RealtimeSession {
   #closed = false;
   #ended = false;
   #meters: Usage | undefined;
+  readonly #toolGroups = new Map<string, { pending: Set<string>; responses: JsonObject[] }>();
+  readonly #toolGroupOf = new Map<string, string>();
 
   constructor(
     model: RealtimeModel<string>,
@@ -363,20 +365,14 @@ class GeminiSession implements RealtimeSession {
     this.#assertOpen();
     const send = () => {
       const mode = delivery === undefined ? 'interrupt' : delivery;
-      this.#send({
-        toolResponse: {
-          functionResponses: [
-            {
-              id: callId,
-              name: result.toolName,
-              scheduling: scheduling[mode],
-              response: {
-                status: result.isError ? 'error' : 'ok',
-                retryable: false,
-                message: resultText(result),
-              },
-            },
-          ],
+      this.#queueTool(callId, {
+        id: callId,
+        name: result.toolName,
+        scheduling: scheduling[mode],
+        response: {
+          status: result.isError ? 'error' : 'ok',
+          retryable: false,
+          message: resultText(result),
         },
       });
     };
@@ -531,23 +527,45 @@ class GeminiSession implements RealtimeSession {
     return next;
   }
 
+  #queueTool(callId: string, response: JsonObject): void {
+    const groupId = this.#toolGroupOf.get(callId) ?? '';
+    const group = groupId.length === 0 ? undefined : this.#toolGroups.get(groupId);
+    if (group === undefined) {
+      this.#send({ toolResponse: { functionResponses: [response] } });
+      return;
+    }
+    group.responses.push(response);
+    group.pending.delete(callId);
+    this.#toolGroupOf.delete(callId);
+    if (group.pending.size > 0) return;
+    this.#toolGroups.delete(groupId);
+    this.#send({ toolResponse: { functionResponses: group.responses } });
+  }
+
   #onToolCall(value: unknown): void {
     const call = record(value);
     if (call === undefined || !Array.isArray(call.functionCalls)) return;
+    const ids: string[] = [];
     for (const entry of call.functionCalls) {
       const fn = record(entry);
       if (fn === undefined) continue;
+      const id = text(fn.id);
+      if (id.length > 0) ids.push(id);
       this.#push({
         type: 'tool_call',
         blocking: this.model.toolCalls === 'blocking',
         call: {
           type: 'toolCall',
-          id: text(fn.id),
+          id,
           name: text(fn.name),
           arguments: argumentsOf(fn.args),
         },
       });
     }
+    const groupId = ids.at(0);
+    if (groupId === undefined) return;
+    this.#toolGroups.set(groupId, { pending: new Set(ids), responses: [] });
+    for (const id of ids) this.#toolGroupOf.set(id, groupId);
   }
 
   #onCancel(value: unknown): void {
