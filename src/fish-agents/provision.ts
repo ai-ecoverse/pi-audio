@@ -1,4 +1,5 @@
 import type { JsonObject, ProviderRequestOptions, Tool } from '@earendil-works/pi-ai';
+import { fishCustomLlm } from '../custom-llm.ts';
 import { VoiceRequestError } from '../errors.ts';
 import {
   type CustomLlm,
@@ -92,23 +93,9 @@ function clientTool(tool: Tool, timeoutMs: number | undefined): JsonObject {
   };
 }
 
-function bearer(headers: CustomLlm['headers']): string | undefined {
-  if (headers === undefined) return undefined;
-  const value = headers.Authorization ?? headers.authorization;
-  if (typeof value !== 'string' || value.length === 0) return undefined;
-  if (value.startsWith('Bearer ')) return value.slice('Bearer '.length);
-  return value;
-}
-
 function llmFields(llm: string | CustomLlm): JsonObject {
   if (typeof llm === 'string') return { model: llm };
-  if (llm.api === 'openai-responses') {
-    throw new VoiceRequestError('error', 'fish custom llm accepts openai-completions only');
-  }
-  const custom: JsonObject = { base_url: llm.baseUrl, model: llm.id };
-  const key = bearer(llm.headers);
-  if (key !== undefined) custom.api_key = key;
-  return { custom };
+  return fishCustomLlm(llm);
 }
 
 export function agentConfig(spec: HostedAgentSpec, toolIds: string[]): JsonObject {

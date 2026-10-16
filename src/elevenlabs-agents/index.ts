@@ -52,6 +52,7 @@ export function registerElevenLabsAgents(options: ElevenLabsOptions = {}): () =>
   };
 }
 
+export { elevenLabsCustomLlm } from '../custom-llm.ts';
 export type { CustomLlm, HostedAgent, HostedAgentSpec, HostedCache } from '../hosted-agent.ts';
 export { hashHostedSpec, memoryHostedCache } from '../hosted-agent.ts';
 export type { ProvisionOptions } from './provision.ts';
