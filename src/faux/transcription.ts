@@ -1,6 +1,5 @@
 import type { ProviderRequestOptions } from '@earendil-works/pi-ai';
 import type { AudioChunk, AudioSource } from '../audio.ts';
-import { blankUsage } from '../blank-usage.ts';
 import { VoiceRequestError } from '../errors.ts';
 import { registerVoiceModel, type TranscriptionModel } from '../models.ts';
 import { registerTranscriptionApiProvider } from '../registry.ts';
@@ -10,6 +9,7 @@ import {
   type TranscriptionEvent,
   TranscriptionEventStream,
 } from '../transcription.ts';
+import { priceAudio, type TranscriptionAudioCost } from '../usage.ts';
 import { decodeBytes, errorMessage, modelKey, pcm, shareApi, zeroCost } from './shared.ts';
 
 export interface FauxTranscriptionCue {
@@ -24,6 +24,7 @@ export interface FauxTranscriptionOptions {
   name?: string;
   turnDetection?: TranscriptionModel<string>['turnDetection'];
   cues?: FauxTranscriptionCue[];
+  audioCost?: TranscriptionAudioCost;
 }
 
 export interface FauxTranscriptionCall {
@@ -70,6 +71,7 @@ export function registerFauxTranscription(
     languages: ['en'],
     diarization: false,
     cost: zeroCost,
+    audioCost: options.audioCost ?? {},
   };
   const state: TranscriptionState = { model, cues: options.cues, calls: [] };
   states.set(modelKey(model), state);
@@ -108,7 +110,7 @@ async function transcribeFaux(
   const state = requireState(model);
   state.calls.push({ kind: 'transcribe', input, chunks: [] });
   const text = 'url' in input ? input.url : decodeBytes(input.data);
-  return { text, usage: blankUsage() };
+  return { text, usage: priceAudio(state.model.audioCost, { inputSeconds: 0 }) };
 }
 
 function listenFaux(
@@ -164,7 +166,8 @@ function finishScript(
   cues: FauxTranscriptionCue[] | undefined,
   text: string,
   at: number,
-  count: number
+  count: number,
+  rates: TranscriptionAudioCost
 ) {
   if (pump.finished) return;
   if (cues) for (const event of endCues(cues, count)) pump.push(event);
@@ -175,7 +178,10 @@ function finishScript(
   if (!pump.finished) {
     pump.push({
       type: 'done',
-      transcript: { text: pump.turnText ?? text, usage: blankUsage() },
+      transcript: {
+        text: pump.turnText ?? text,
+        usage: priceAudio(rates, { inputSeconds: at / 1000 }),
+      },
     });
   }
 }
@@ -212,7 +218,7 @@ async function pumpListen(
       pump.push({ type: 'error', reason: 'aborted', error: 'aborted' });
       return;
     }
-    finishScript(pump, state.cues, text, at, count);
+    finishScript(pump, state.cues, text, at, count, state.model.audioCost);
   } catch (error) {
     pump.push({ type: 'error', reason: 'error', error: errorMessage(error) });
   }

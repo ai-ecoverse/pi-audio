@@ -1,5 +1,6 @@
 import type { BaseModel } from '@earendil-works/pi-ai';
 import type { AudioFormat } from './audio.ts';
+import type { RealtimeAudioCost, SpeechAudioCost, TranscriptionAudioCost } from './usage.ts';
 
 export type KnownTranscriptionApi =
   | 'openai-transcriptions'
@@ -51,6 +52,7 @@ export interface TranscriptionModel<TApi extends TranscriptionApi>
   inputFormats: AudioFormat[];
   languages?: string[];
   diarization?: boolean;
+  audioCost: TranscriptionAudioCost;
 }
 
 export interface SpeechModel<TApi extends SpeechApi> extends Omit<BaseModel<TApi>, 'input'> {
@@ -59,6 +61,7 @@ export interface SpeechModel<TApi extends SpeechApi> extends Omit<BaseModel<TApi
   outputFormats: AudioFormat[];
   voices?: VoiceInfo[];
   cloning?: boolean;
+  audioCost: SpeechAudioCost;
 }
 
 export interface RealtimeModel<TApi extends RealtimeApi> extends Omit<BaseModel<TApi>, 'input'> {
@@ -78,6 +81,7 @@ export interface RealtimeModel<TApi extends RealtimeApi> extends Omit<BaseModel<
   truncation: 'client' | 'server' | 'none';
   liveToolUpdate: boolean;
   toolTimeoutMs?: { min: number; max: number };
+  audioCost: RealtimeAudioCost;
 }
 
 declare module '@earendil-works/pi-ai' {

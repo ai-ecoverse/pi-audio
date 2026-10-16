@@ -1,10 +1,10 @@
 import type { ProviderRequestOptions } from '@earendil-works/pi-ai';
 import type { AudioFormat, CharAlignment } from '../audio.ts';
-import { blankUsage } from '../blank-usage.ts';
 import { VoiceRequestError } from '../errors.ts';
 import { registerVoiceModel, type SpeechModel } from '../models.ts';
 import { registerSpeechApiProvider } from '../registry.ts';
 import { SpeechEventStream, type SpeechInput } from '../speech.ts';
+import { priceAudio, type SpeechAudioCost } from '../usage.ts';
 import { encodeChars, errorMessage, modelKey, pcm, shareApi, zeroCost } from './shared.ts';
 
 export interface FauxSpeechOptions {
@@ -15,6 +15,7 @@ export interface FauxSpeechOptions {
   alignment?: boolean;
   chunkChars?: number;
   textStreaming?: boolean;
+  audioCost?: SpeechAudioCost;
 }
 
 export interface FauxSpeech {
@@ -47,6 +48,7 @@ export function registerFauxSpeech(options: FauxSpeechOptions = {}): FauxSpeech 
     voices: [{ id: 'faux', name: 'Faux', languages: ['en'] }],
     cloning: false,
     cost: zeroCost,
+    audioCost: options.audioCost ?? {},
   };
   const state: SpeechState = {
     model,
@@ -137,7 +139,13 @@ async function pumpSpeech(
         ...(state.alignment ? { alignment: alignmentFor(start, slice.length) } : {}),
       });
     }
-    stream.push({ type: 'done', usage: blankUsage() });
+    stream.push({
+      type: 'done',
+      usage: priceAudio(state.model.audioCost, {
+        characters: text.length,
+        outputSeconds: (text.length * 20) / 1000,
+      }),
+    });
   } catch (error) {
     const reason = error instanceof VoiceRequestError ? error.reason : 'error';
     stream.push({ type: 'error', reason, error: errorMessage(error) });

@@ -60,3 +60,12 @@ export type {
   TranscriptSegment,
 } from './transcription.ts';
 export { TranscriptionEventStream } from './transcription.ts';
+export type {
+  AudioCost,
+  AudioCounters,
+  AudioUsage,
+  RealtimeAudioCost,
+  SpeechAudioCost,
+  TranscriptionAudioCost,
+} from './usage.ts';
+export { addAudioCounters, priceAudio } from './usage.ts';
