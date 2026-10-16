@@ -13,6 +13,7 @@ import {
   type TextSpan,
 } from './audio.ts';
 import { type SpokenClock, spokenOffset, utteranceIndex } from './captions.ts';
+import { type EchoControl, openEchoMic } from './echo.ts';
 import { VoiceRequestError } from './errors.ts';
 import type { SpeechModel, TranscriptionModel } from './models.ts';
 import { pushQueue } from './queue.ts';
@@ -66,6 +67,7 @@ export interface VoiceTurnOptions {
   announce?: (call: ToolCall) => string | undefined;
   bargeIn?: BargeIn;
   echoRecommendation?: EchoRecommendation;
+  echo?: EchoControl;
   soundscape?: Soundscape;
 }
 
@@ -141,7 +143,7 @@ export function voiceTurns(
   const session: Session = {
     models,
     conversation,
-    mic,
+    mic: heardMic(options, mic),
     out: speechOf(out),
     options,
     signal,
@@ -521,6 +523,12 @@ function shouldBarge(mode: 'interrupt' | 'onWords' | 'ignore', event: Transcript
   if (mode === 'ignore') return false;
   if (mode === 'interrupt') return event.type === 'speech_start';
   return event.type === 'partial' && event.text.trim().length > 0;
+}
+
+function heardMic(options: VoiceTurnOptions, mic: AudioSource): AudioSource {
+  const echo = options.echo;
+  if (echo === undefined) return mic;
+  return openEchoMic(echo, mic);
 }
 
 function speechOf(out: AudioSink | AudioOut): AudioSink {
