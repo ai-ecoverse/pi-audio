@@ -61,6 +61,7 @@ export {
 } from './registry.ts';
 export type { SpeechApiProvider, SpeechEvent, SpeechInput } from './speech.ts';
 export { SpeechEventStream } from './speech.ts';
+export type { VoiceAgentEvent, VoiceMessageChange } from './spoken.ts';
 export type {
   BindThinkerOptions,
   BoundThinker,
@@ -79,6 +80,19 @@ export type {
   TranscriptSegment,
 } from './transcription.ts';
 export { TranscriptionEventStream } from './transcription.ts';
+export type {
+  BargeIn,
+  CaptionEvent,
+  EchoRecommendation,
+  VoiceConversation,
+  VoiceCut,
+  VoiceModels,
+  VoicePhase,
+  VoiceSession,
+  VoiceTurnMeta,
+  VoiceTurnOptions,
+} from './turns.ts';
+export { voiceTurns } from './turns.ts';
 export type {
   AudioCost,
   AudioCounters,
