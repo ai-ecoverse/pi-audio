@@ -49,6 +49,10 @@
     "./durable": {
       "types": "./dist/types/durable/index.d.ts",
       "default": "./dist/durable/index.js"
+    },
+    "./gemini-live": {
+      "types": "./dist/types/gemini-live/index.d.ts",
+      "default": "./dist/gemini-live/index.js"
     }
   },
   "files": [
