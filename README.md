@@ -6,7 +6,9 @@ Voice bindings for [pi](https://github.com/earendil-works/pi): speech-to-text, t
 npm install @ai-ecoverse/pi-audio
 ```
 
-The package is a TypeScript ES module library for Node 24 and newer. It is at the scaffold stage; the API arrives with the first release.
+The package is a TypeScript ES module library for Node 24 and newer. It peers `@earendil-works/pi-ai`.
+
+Transcription, speech, and realtime models are added to pi-ai's `ModelTypeMap` by declaration merging. They are not chat models: `Models.getAllModels()` does not list them. Register them with `registerVoiceModel` and look them up with `getVoiceModel` / `listVoiceModels`. Operations dispatch on `model.api` through `registerTranscriptionApiProvider`, `registerSpeechApiProvider`, and `registerRealtimeApiProvider`. A stored chat credential is reused with `resolveVoiceAuth(models, voiceModel)`, which calls `Models.getAuth` for that provider. Provider adapters ship as their own subpath exports (`@ai-ecoverse/pi-audio/openai`, and the rest) so a host loads only the ones it uses.
 
 ## Development
 
