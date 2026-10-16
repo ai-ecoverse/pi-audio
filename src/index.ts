@@ -10,6 +10,12 @@ export type {
 } from './audio.ts';
 export { resolveVoiceAuth } from './auth.ts';
 export { blankUsage } from './blank-usage.ts';
+export {
+  convertAudio,
+  convertAudioSource,
+  decodeAudioBase64,
+  encodeAudioBase64,
+} from './convert.ts';
 export { VoiceRequestError } from './errors.ts';
 export type {
   Delivery,
