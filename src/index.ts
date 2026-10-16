@@ -18,6 +18,16 @@ export {
   decodeAudioBase64,
   encodeAudioBase64,
 } from './convert.ts';
+export type { EchoCanceller, EchoControl, EchoMode, EchoReport, MicOpen } from './echo.ts';
+export {
+  assertNodeEcho,
+  calibrateEcho,
+  chooseCapture,
+  echoRuntime,
+  measureEcho,
+  micOpen,
+  openEchoMic,
+} from './echo.ts';
 export { VoiceRequestError } from './errors.ts';
 export type {
   Delivery,
