@@ -1,0 +1,43 @@
+[
+  {
+    "type": "conversation_initiation_metadata",
+    "conversation_initiation_metadata_event": { "conversation_id": "conv_1" }
+  },
+  {
+    "type": "user_transcript",
+    "user_transcription_event": { "user_transcript": "What is failing?" }
+  },
+  {
+    "type": "client_tool_call",
+    "client_tool_call": {
+      "tool_name": "read",
+      "tool_call_id": "call_1",
+      "parameters": { "path": "README.md" },
+      "expects_response": true
+    }
+  },
+  {
+    "type": "audio",
+    "audio_event": {
+      "audio_base_64": "QQ==",
+      "event_id": 3,
+      "alignment": {
+        "chars": ["T", "e", "s", "t", "s"],
+        "char_start_times_ms": [0, 20, 40, 60, 80],
+        "char_durations_ms": [20, 20, 20, 20, 20]
+      }
+    }
+  },
+  {
+    "type": "agent_chat_response_part",
+    "text_response_part": { "type": "delta", "text": "Tests ", "response_id": "resp_1" }
+  },
+  {
+    "type": "agent_response_correction",
+    "agent_response_correction_event": {
+      "original_agent_response": "Tests are failing in src.",
+      "corrected_agent_response": "Tests are failing."
+    }
+  },
+  { "type": "agent_response_complete" }
+]
