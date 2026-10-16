@@ -61,6 +61,8 @@ export {
   speak,
   transcribe,
 } from './registry.ts';
+export type { AudioOut, BedChannel, Cue, CueSource, Soundscape } from './soundscape.ts';
+export { followBed } from './soundscape.ts';
 export type { SpeechApiProvider, SpeechEvent, SpeechInput } from './speech.ts';
 export { SpeechEventStream } from './speech.ts';
 export type { VoiceAgentEvent, VoiceMessageChange } from './spoken.ts';

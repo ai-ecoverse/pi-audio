@@ -16,6 +16,13 @@ import { type SpokenClock, spokenOffset, utteranceIndex } from './captions.ts';
 import { VoiceRequestError } from './errors.ts';
 import type { SpeechModel, TranscriptionModel } from './models.ts';
 import { pushQueue } from './queue.ts';
+import {
+  type AudioOut,
+  type BedFollower,
+  followBed,
+  isAudioOut,
+  type Soundscape,
+} from './soundscape.ts';
 import type { SpeechEvent, SpeechInput } from './speech.ts';
 import {
   createSpokenState,
@@ -59,6 +66,7 @@ export interface VoiceTurnOptions {
   announce?: (call: ToolCall) => string | undefined;
   bargeIn?: BargeIn;
   echoRecommendation?: EchoRecommendation;
+  soundscape?: Soundscape;
 }
 
 export interface VoiceModels {
@@ -124,7 +132,7 @@ export function voiceTurns(
   models: VoiceModels,
   conversation: VoiceConversation,
   mic: AudioSource,
-  out: AudioSink,
+  out: AudioSink | AudioOut,
   options: VoiceTurnOptions,
   signal: AbortSignal
 ): VoiceSession {
@@ -134,12 +142,13 @@ export function voiceTurns(
     models,
     conversation,
     mic,
-    out,
+    out: speechOf(out),
     options,
     signal,
     phases,
     captions,
     maps: [],
+    bed: attachBed(out, options.soundscape),
   };
   const done = runSession(session).finally(() => {
     phases.end();
@@ -159,6 +168,7 @@ interface Session {
   captions: ReturnType<typeof pushQueue<CaptionEvent>>;
   maps: SpokenMap[];
   playing?: SpokenClock;
+  bed: BedFollower;
 }
 
 async function runSession(session: Session): Promise<void> {
@@ -178,7 +188,7 @@ async function runSession(session: Session): Promise<void> {
     if (!active) return;
     notePlayback(session, active, tag, offsetMs);
   });
-  const setPhase = phaseSetter(session.phases);
+  const setPhase = phaseSetter(session.phases, session.bed);
   try {
     if (session.signal.aborted) return;
     setPhase({ phase: 'listening' });
@@ -210,6 +220,7 @@ async function runSession(session: Session): Promise<void> {
     else if (active) await active.done;
     stopPlayback();
     setPhase({ phase: 'idle' });
+    session.bed.stop();
   }
 }
 
@@ -512,13 +523,32 @@ function shouldBarge(mode: 'interrupt' | 'onWords' | 'ignore', event: Transcript
   return event.type === 'partial' && event.text.trim().length > 0;
 }
 
-function phaseSetter(phases: Session['phases']): (phase: VoicePhase) => void {
+function speechOf(out: AudioSink | AudioOut): AudioSink {
+  if (isAudioOut(out)) return out.speech;
+  return out;
+}
+
+function attachBed(out: AudioSink | AudioOut, soundscape: Soundscape | undefined): BedFollower {
+  if (!soundscape) return idleBed();
+  if (!isAudioOut(out)) return idleBed();
+  return followBed(out.bed, soundscape);
+}
+
+function idleBed(): BedFollower {
+  return {
+    observe() {},
+    stop() {},
+  };
+}
+
+function phaseSetter(phases: Session['phases'], bed: BedFollower): (phase: VoicePhase) => void {
   let previous = '';
   return (phase) => {
     const key = JSON.stringify(phase);
     if (key === previous) return;
     previous = key;
     phases.push(phase);
+    bed.observe(phase);
   };
 }
 
