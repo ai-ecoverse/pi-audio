@@ -1,5 +1,6 @@
 import type { ProviderRequestOptions } from '@earendil-works/pi-ai';
 import type { AudioSource } from './audio.ts';
+import { speakInSentences } from './chunk-speech.ts';
 import type { RealtimeModel, SpeechModel, TranscriptionModel } from './models.ts';
 import type {
   RealtimeApiProvider,
@@ -15,6 +16,7 @@ import type {
   TranscriptionApiProvider,
   TranscriptionEventStream,
 } from './transcription.ts';
+import { listenWithVad } from './vad-listen.ts';
 
 interface TranscriptionEntry {
   provider: TranscriptionApiProvider;
@@ -77,6 +79,7 @@ export function listen(
 ): TranscriptionEventStream {
   const listenModel = transcriptionApis.get(model.api)?.provider.listen;
   if (!listenModel) throw missing(model.api);
+  if (model.turnDetection === 'none') return listenWithVad(listenModel, model, audio, options);
   return listenModel(model, audio, options);
 }
 
@@ -87,6 +90,7 @@ export function speak(
 ): SpeechEventStream {
   const speakModel = speechApis.get(model.api)?.provider.speak;
   if (!speakModel) throw missing(model.api);
+  if (!model.textStreaming) return speakInSentences(speakModel, model, input, options);
   return speakModel(model, input, options);
 }
 

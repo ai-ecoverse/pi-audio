@@ -75,3 +75,5 @@ export type {
   TranscriptionAudioCost,
 } from './usage.ts';
 export { addAudioCounters, priceAudio } from './usage.ts';
+export type { VadHook, VadUpdate } from './vad.ts';
+export { energyVad } from './vad.ts';
