@@ -10,6 +10,8 @@ export type {
 } from './audio.ts';
 export { resolveVoiceAuth } from './auth.ts';
 export { blankUsage } from './blank-usage.ts';
+export type { CaptionHistoryEntry } from './captions.ts';
+export { captionsFromHistory } from './captions.ts';
 export {
   convertAudio,
   convertAudioSource,

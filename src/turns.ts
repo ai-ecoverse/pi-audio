@@ -5,7 +5,14 @@ import type {
   ToolCall,
   UserMessage,
 } from '@earendil-works/pi-ai';
-import type { AudioSink, AudioSource, AudioTag, TextSpan } from './audio.ts';
+import {
+  type AudioSink,
+  type AudioSource,
+  type AudioTag,
+  chunkSeconds,
+  type TextSpan,
+} from './audio.ts';
+import { type SpokenClock, spokenOffset, utteranceIndex } from './captions.ts';
 import { VoiceRequestError } from './errors.ts';
 import type { SpeechModel, TranscriptionModel } from './models.ts';
 import { pushQueue } from './queue.ts';
@@ -109,6 +116,7 @@ interface ActiveTurn {
   done: Promise<void>;
   turnId: string;
   utteranceId: string;
+  spokenUpTo: number;
   cut?: VoiceCut;
 }
 
@@ -122,7 +130,17 @@ export function voiceTurns(
 ): VoiceSession {
   const phases = pushQueue<VoicePhase>();
   const captions = pushQueue<CaptionEvent>();
-  const session: Session = { models, conversation, mic, out, options, signal, phases, captions };
+  const session: Session = {
+    models,
+    conversation,
+    mic,
+    out,
+    options,
+    signal,
+    phases,
+    captions,
+    maps: [],
+  };
   const done = runSession(session).finally(() => {
     phases.end();
     captions.end();
@@ -139,6 +157,8 @@ interface Session {
   signal: AbortSignal;
   phases: ReturnType<typeof pushQueue<VoicePhase>>;
   captions: ReturnType<typeof pushQueue<CaptionEvent>>;
+  maps: SpokenMap[];
+  playing?: SpokenClock;
 }
 
 async function runSession(session: Session): Promise<void> {
@@ -154,14 +174,9 @@ async function runSession(session: Session): Promise<void> {
     }
     return openId;
   };
-  const stopPlayback = session.out.onPlayback((tag) => {
-    if (!active || !('entryId' in tag.span)) return;
-    active.cut = {
-      entryId: tag.span.entryId,
-      contentIndex: tag.span.contentIndex,
-      heardUpTo: tag.span.end,
-      heardMs: session.out.playedMs,
-    };
+  const stopPlayback = session.out.onPlayback((tag, offsetMs) => {
+    if (!active) return;
+    notePlayback(session, active, tag, offsetMs);
   });
   const setPhase = phaseSetter(session.phases);
   try {
@@ -191,9 +206,9 @@ async function runSession(session: Session): Promise<void> {
       active = startTurn(session, setPhase, turnId, event, meta);
     }
   } finally {
-    stopPlayback();
     if (session.signal.aborted && active) await interrupt(session, active);
     else if (active) await active.done;
+    stopPlayback();
     setPhase({ phase: 'idle' });
   }
 }
@@ -255,6 +270,7 @@ function startTurn(
     unlink: linked.unlink,
     turnId,
     utteranceId: `${turnId}:agent`,
+    spokenUpTo: 0,
     done: Promise.resolve(),
   };
   active.done = performTurn(session, setPhase, active, event.text, event.at, meta).finally(() => {
@@ -277,6 +293,7 @@ async function performTurn(
     const message: UserMessage = { role: 'user', content: text, timestamp: at };
     const feed = textFeed(signal);
     const maps: SpokenMap[] = [];
+    session.maps = maps;
     const producing = readAgent(session, setPhase, active, message, meta, feed, maps);
     const audio = session.models.speak(
       session.options.mouth,
@@ -380,12 +397,40 @@ async function pipeSpeech(
     if (event.type !== 'audio') continue;
     setPhase({ phase: 'speaking' });
     const span = translateSpan(event.span, maps);
-    const tag: AudioTag = {
-      span,
-      ...(event.alignment ? { alignment: event.alignment } : {}),
+    const playing: SpokenClock = {
+      start: event.span.start,
+      end: event.span.end,
+      durationMs: Math.round(chunkSeconds(event.chunk) * 1000),
     };
+    if (event.alignment) playing.alignment = event.alignment;
+    session.playing = playing;
+    const tag: AudioTag = { span };
+    if (event.alignment) tag.alignment = event.alignment;
     session.out.write(event.chunk, tag);
   }
+}
+
+function notePlayback(session: Session, active: ActiveTurn, tag: AudioTag, offsetMs: number): void {
+  const playing = session.playing;
+  if (playing) {
+    const upTo = utteranceIndex(spokenOffset(playing, offsetMs), session.maps);
+    if (upTo > active.spokenUpTo) {
+      active.spokenUpTo = upTo;
+      session.captions.push({
+        type: 'agent_spoken',
+        turnId: active.turnId,
+        utteranceId: active.utteranceId,
+        upTo,
+      });
+    }
+  }
+  if (!('entryId' in tag.span)) return;
+  active.cut = {
+    entryId: tag.span.entryId,
+    contentIndex: tag.span.contentIndex,
+    heardUpTo: tag.span.end,
+    heardMs: session.out.playedMs,
+  };
 }
 
 function translateSpan(span: TextSpan, maps: SpokenMap[]): TextSpan {
