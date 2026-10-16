@@ -78,6 +78,7 @@ interface Session {
   heldEnd?: number;
   providerTurn?: string;
   pendingDone?: Extract<TranscriptionEvent, { type: 'done' }>;
+  sawFinal: boolean;
   stopped: boolean;
   lastAt: number;
 }
@@ -107,6 +108,7 @@ function closeTurn(session: Session, at: number) {
   session.pendingEnd = undefined;
   session.heldEnd = undefined;
   session.providerTurn = undefined;
+  session.sawFinal = false;
   session.stream.push({ type: 'turn_end', text, at });
 }
 
@@ -116,6 +118,7 @@ function openTurn(session: Session, at: number) {
   session.started = true;
   session.turnOpen = true;
   session.pendingStart = undefined;
+  session.sawFinal = false;
 }
 
 function applyEvent(session: Session, event: TranscriptionEvent) {
@@ -133,6 +136,7 @@ function applyEvent(session: Session, event: TranscriptionEvent) {
   }
   if (event.type === 'partial' || event.type === 'final') {
     if (!session.started) openTurn(session, session.pendingStart ?? session.lastAt);
+    if (event.type === 'final') session.sawFinal = true;
     session.segments.set(event.segmentId, event.text);
     session.stream.push(event);
     return;
@@ -145,8 +149,28 @@ function applyEvent(session: Session, event: TranscriptionEvent) {
   if (event.type === 'done') session.pendingDone = event;
 }
 
+function turnReady(session: Session): boolean {
+  if (session.sawFinal) return true;
+  if (session.providerTurn !== undefined) return true;
+  if (session.pendingDone) return true;
+  return false;
+}
+
+function holdForNextSpeech(
+  session: Session,
+  events: TranscriptionEvent[],
+  update: VadUpdate | undefined
+) {
+  if (session.heldEnd === undefined || !session.turnOpen) return;
+  const started =
+    update?.speechStart !== undefined || events.some((event) => event.type === 'speech_start');
+  if (!started) return;
+  closeTurn(session, session.heldEnd);
+}
+
 function absorb(session: Session, events: TranscriptionEvent[], update: VadUpdate | undefined) {
   if (session.stopped) return;
+  holdForNextSpeech(session, events, update);
   if (update?.speechStart !== undefined) session.pendingStart = update.speechStart;
   if (update?.turnEnd !== undefined) session.pendingEnd = update.turnEnd;
   const textual = events.some(
@@ -163,7 +187,28 @@ function absorb(session: Session, events: TranscriptionEvent[], update: VadUpdat
     session.heldEnd = session.pendingEnd;
     session.pendingEnd = undefined;
   }
-  if (session.heldEnd !== undefined) closeTurn(session, session.heldEnd);
+  if (session.heldEnd !== undefined && turnReady(session)) closeTurn(session, session.heldEnd);
+}
+
+async function finishWhenClosed(
+  session: Session,
+  options: ListenOptions | undefined,
+  stream: TranscriptionEventStream,
+  closed: () => boolean,
+  take: () => void
+) {
+  while (!closed() && !session.stopped) {
+    if (options?.signal?.aborted) {
+      stream.push({ type: 'error', reason: 'aborted', error: 'aborted' });
+      session.stopped = true;
+      return;
+    }
+    await tick();
+    take();
+  }
+  if (session.stopped) return;
+  take();
+  finish(session);
 }
 
 function finish(session: Session) {
@@ -216,8 +261,14 @@ async function pump(
   const inbox: TranscriptionEvent[] = [];
   let readerClosed = false;
   const reading = (async () => {
-    for await (const event of inner) inbox.push(event);
-    readerClosed = true;
+    try {
+      for await (const event of inner) inbox.push(event);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      inbox.push({ type: 'error', reason: 'error', error: message });
+    } finally {
+      readerClosed = true;
+    }
   })();
   const session: Session = {
     stream,
@@ -225,6 +276,7 @@ async function pump(
     closed: '',
     turnOpen: false,
     started: false,
+    sawFinal: false,
     stopped: false,
     lastAt: 0,
   };
@@ -254,15 +306,9 @@ async function pump(
       take(update);
     }
     gate.push(null);
-    if (!session.stopped) {
-      let attempt = 0;
-      do {
-        await tick();
-        take();
-        attempt += 1;
-      } while (!readerClosed && attempt < 50);
-      finish(session);
-    } else await tick();
+    if (!session.stopped)
+      await finishWhenClosed(session, options, stream, () => readerClosed, take);
+    else await tick();
   } catch (error) {
     gate.push(null);
     if (!session.stopped) {

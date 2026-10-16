@@ -1,4 +1,5 @@
-import type { AudioChunk } from './audio.ts';
+import type { AudioChunk, AudioEncoding } from './audio.ts';
+import { convertAudio } from './convert.ts';
 
 export interface VadUpdate {
   speechStart?: number;
@@ -42,6 +43,17 @@ function rms(chunk: AudioChunk): number | undefined {
   return Math.sqrt(sum / samples);
 }
 
+const compressed = new Set<AudioEncoding>(['opus', 'mp3', 'flac']);
+
+function pcmEnergy(chunk: AudioChunk): AudioChunk {
+  const encoding = chunk.format.encoding;
+  if (encoding === 'pcm16' || encoding === 'pcmf32') return chunk;
+  if (compressed.has(encoding)) {
+    throw new Error(`energyVad requires PCM audio, received ${encoding}`);
+  }
+  return convertAudio(chunk, { ...chunk.format, encoding: 'pcm16' });
+}
+
 export function energyVad(options: EnergyVadOptions = {}): VadHook {
   const threshold = options.threshold ?? 0.02;
   const silenceMs = options.silenceMs ?? 500;
@@ -49,13 +61,11 @@ export function energyVad(options: EnergyVadOptions = {}): VadHook {
   let silence = 0;
   return {
     push(chunk) {
-      const level = rms(chunk);
-      if (level === undefined) {
-        if (chunk.data.byteLength === 0 || speaking) return undefined;
-        speaking = true;
-        return { speechStart: chunk.timestamp };
-      }
-      const duration = durationMs(chunk);
+      const sample = pcmEnergy(chunk);
+      const measured = rms(sample);
+      let level = 0;
+      if (measured !== undefined) level = measured;
+      const duration = durationMs(sample);
       if (level >= threshold) {
         silence = 0;
         if (speaking) return undefined;

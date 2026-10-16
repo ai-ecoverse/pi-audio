@@ -9,6 +9,7 @@ import {
   type AudioSink,
   type AudioSource,
   type AudioTag,
+  type CharAlignment,
   chunkSeconds,
   type TextSpan,
 } from './audio.ts';
@@ -120,6 +121,11 @@ interface SpokenMap {
   kind: SpokenPiece['kind'];
 }
 
+interface PlayedTag {
+  tag: AudioTag;
+  offsetMs: number;
+}
+
 interface ActiveTurn {
   controller: AbortController;
   unlink: () => void;
@@ -127,6 +133,7 @@ interface ActiveTurn {
   turnId: string;
   utteranceId: string;
   spokenUpTo: number;
+  plays: PlayedTag[];
   cut?: VoiceCut;
 }
 
@@ -150,6 +157,7 @@ export function voiceTurns(
     phases,
     captions,
     maps: [],
+    clocks: new WeakMap(),
     bed: attachBed(out, options.soundscape),
   };
   const done = runSession(session).finally(() => {
@@ -169,7 +177,7 @@ interface Session {
   phases: ReturnType<typeof pushQueue<VoicePhase>>;
   captions: ReturnType<typeof pushQueue<CaptionEvent>>;
   maps: SpokenMap[];
-  playing?: SpokenClock;
+  clocks: WeakMap<AudioTag, SpokenClock>;
   bed: BedFollower;
 }
 
@@ -191,12 +199,18 @@ async function runSession(session: Session): Promise<void> {
     notePlayback(session, active, tag, offsetMs);
   });
   const setPhase = phaseSetter(session.phases, session.bed);
+  const turnFailed = Promise.withResolvers<never>();
   try {
     if (session.signal.aborted) return;
     setPhase({ phase: 'listening' });
-    for await (const event of session.models.listen(session.options.ears, session.mic, {
-      signal: session.signal,
-    })) {
+    const heard = session.models
+      .listen(session.options.ears, session.mic, {
+        signal: session.signal,
+      })
+      [Symbol.asyncIterator]();
+    while (true) {
+      const event = await nextVoiceEvent(heard, turnFailed.promise);
+      if (!event) break;
       if (event.type === 'error') {
         if (event.reason === 'aborted' || session.signal.aborted) return;
         throw new VoiceRequestError(event.reason, event.error);
@@ -215,7 +229,7 @@ async function runSession(session: Session): Promise<void> {
       setPhase({ phase: 'heard', text: event.text });
       const meta = turnMeta(session.options, confidence);
       confidence = undefined;
-      active = startTurn(session, setPhase, turnId, event, meta);
+      active = startTurn(session, setPhase, turnId, event, meta, turnFailed.reject);
     }
   } finally {
     if (session.signal.aborted && active) await interrupt(session, active);
@@ -270,12 +284,22 @@ async function finishTurn(active: ActiveTurn | undefined): Promise<undefined> {
   return undefined;
 }
 
+async function nextVoiceEvent(
+  heard: AsyncIterator<TranscriptionEvent>,
+  failed: Promise<never>
+): Promise<TranscriptionEvent | undefined> {
+  const step = await Promise.race([heard.next(), failed]);
+  if (step.done) return undefined;
+  return step.value;
+}
+
 function startTurn(
   session: Session,
   setPhase: (phase: VoicePhase) => void,
   turnId: string,
   event: Extract<TranscriptionEvent, { type: 'turn_end' }>,
-  meta: VoiceTurnMeta
+  meta: VoiceTurnMeta,
+  rejectTurn: (error: unknown) => void
 ): ActiveTurn {
   const linked = linkSignal(session.signal);
   const active: ActiveTurn = {
@@ -284,11 +308,13 @@ function startTurn(
     turnId,
     utteranceId: `${turnId}:agent`,
     spokenUpTo: 0,
+    plays: [],
     done: Promise.resolve(),
   };
   active.done = performTurn(session, setPhase, active, event.text, event.at, meta).finally(() => {
     linked.unlink();
   });
+  void active.done.catch((error: unknown) => rejectTurn(error));
   return active;
 }
 
@@ -354,7 +380,7 @@ async function readAgent(
         );
         feed.push(piece.text);
       }
-      if (state.entryId) bindEntry(maps, state.entryId);
+      if (state.entryId) bindEntry(session, active, maps, state.entryId);
     }
   } finally {
     feed.end();
@@ -410,40 +436,90 @@ async function pipeSpeech(
     if (event.type !== 'audio') continue;
     setPhase({ phase: 'speaking' });
     const span = translateSpan(event.span, maps);
-    const playing: SpokenClock = {
-      start: event.span.start,
-      end: event.span.end,
-      durationMs: Math.round(chunkSeconds(event.chunk) * 1000),
-    };
-    if (event.alignment) playing.alignment = event.alignment;
-    session.playing = playing;
     const tag: AudioTag = { span };
     if (event.alignment) tag.alignment = event.alignment;
+    session.clocks.set(tag, clockOf(event));
     session.out.write(event.chunk, tag);
   }
 }
 
+function clockOf(event: Extract<SpeechEvent, { type: 'audio' }>): SpokenClock {
+  const clock: SpokenClock = {
+    start: event.span.start,
+    end: event.span.end,
+    durationMs: chunkDurationMs(event),
+  };
+  if (event.alignment) clock.alignment = event.alignment;
+  return clock;
+}
+
+function chunkDurationMs(event: Extract<SpeechEvent, { type: 'audio' }>): number {
+  const measured = Math.round(chunkSeconds(event.chunk) * 1000);
+  if (measured > 0) return measured;
+  const aligned = alignedDuration(event.alignment);
+  if (aligned > 0) return aligned;
+  const span = event.span.end - event.span.start;
+  if (span > 0) return span;
+  return 0;
+}
+
+function alignedDuration(alignment: CharAlignment | undefined): number {
+  if (!alignment) return 0;
+  let ms = 0;
+  for (const duration of alignment.durationMs) ms += duration;
+  return ms;
+}
+
 function notePlayback(session: Session, active: ActiveTurn, tag: AudioTag, offsetMs: number): void {
-  const playing = session.playing;
-  if (playing) {
-    const upTo = utteranceIndex(spokenOffset(playing, offsetMs), session.maps);
-    if (upTo > active.spokenUpTo) {
-      active.spokenUpTo = upTo;
-      session.captions.push({
-        type: 'agent_spoken',
-        turnId: active.turnId,
-        utteranceId: active.utteranceId,
-        upTo,
-      });
-    }
-  }
-  if (!('entryId' in tag.span)) return;
+  rememberPlay(active, tag, offsetMs);
+  const playing = session.clocks.get(tag);
+  if (playing) revealSpoken(session, active, playing, offsetMs);
+  const span = translateSpan(tag.span, session.maps);
+  if (!('entryId' in span)) return;
   active.cut = {
-    entryId: tag.span.entryId,
-    contentIndex: tag.span.contentIndex,
-    heardUpTo: tag.span.end,
+    entryId: span.entryId,
+    contentIndex: span.contentIndex,
+    heardUpTo: playedSource(span, playing, offsetMs),
     heardMs: session.out.playedMs,
   };
+}
+
+function rememberPlay(active: ActiveTurn, tag: AudioTag, offsetMs: number) {
+  const existing = active.plays.find((play) => play.tag === tag);
+  if (existing) {
+    existing.offsetMs = offsetMs;
+    return;
+  }
+  active.plays.push({ tag, offsetMs });
+}
+
+function revealSpoken(
+  session: Session,
+  active: ActiveTurn,
+  playing: SpokenClock,
+  offsetMs: number
+) {
+  const upTo = utteranceIndex(spokenOffset(playing, offsetMs), session.maps);
+  if (upTo <= active.spokenUpTo) return;
+  active.spokenUpTo = upTo;
+  session.captions.push({
+    type: 'agent_spoken',
+    turnId: active.turnId,
+    utteranceId: active.utteranceId,
+    upTo,
+  });
+}
+
+function playedSource(
+  span: { start: number; end: number },
+  clock: SpokenClock | undefined,
+  offsetMs: number
+): number {
+  if (!clock) return span.end;
+  const length = clock.end - clock.start;
+  if (length <= 0) return span.end;
+  const local = spokenOffset(clock, offsetMs) - clock.start;
+  return span.start + Math.round((local * (span.end - span.start)) / length);
 }
 
 function translateSpan(span: TextSpan, maps: SpokenMap[]): TextSpan {
@@ -472,10 +548,11 @@ function scale(offset: number, spokenLen: number, sourceLen: number): number {
   return Math.round((offset * sourceLen) / spokenLen);
 }
 
-function bindEntry(maps: SpokenMap[], entryId: string): void {
+function bindEntry(session: Session, active: ActiveTurn, maps: SpokenMap[], entryId: string): void {
   for (const map of maps) {
     if (map.kind === 'answer' && map.entryId === undefined) map.entryId = entryId;
   }
+  for (const play of active.plays) notePlayback(session, active, play.tag, play.offsetMs);
 }
 
 function notePhase(setPhase: (phase: VoicePhase) => void, event: VoiceAgentEvent): void {
