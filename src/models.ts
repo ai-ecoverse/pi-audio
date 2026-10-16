@@ -9,7 +9,8 @@ export type KnownTranscriptionApi =
   | 'elevenlabs-scribe'
   | 'mistral-transcriptions'
   | 'fish-asr'
-  | 'cloudflare-ai-run';
+  | 'cloudflare-ai-run'
+  | 'wavespeed';
 
 export type TranscriptionApi = KnownTranscriptionApi | (string & {});
 

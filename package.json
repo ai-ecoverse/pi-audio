@@ -66,6 +66,10 @@
       "types": "./dist/types/cloudflare/index.d.ts",
       "default": "./dist/cloudflare/index.js"
     },
+    "./wavespeed": {
+      "types": "./dist/types/wavespeed/index.d.ts",
+      "default": "./dist/wavespeed/index.js"
+    },
     "./durable": {
       "types": "./dist/types/durable/index.d.ts",
       "default": "./dist/durable/index.js"
