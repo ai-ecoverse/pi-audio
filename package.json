@@ -54,6 +54,10 @@
       "types": "./dist/types/mistral/index.d.ts",
       "default": "./dist/mistral/index.js"
     },
+    "./fish": {
+      "types": "./dist/types/fish/index.d.ts",
+      "default": "./dist/fish/index.js"
+    },
     "./durable": {
       "types": "./dist/types/durable/index.d.ts",
       "default": "./dist/durable/index.js"
