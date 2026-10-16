@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { connectRealtime, listen, speak } from '@ai-ecoverse/pi-audio';
+import { addAudioCounters, connectRealtime, listen, speak } from '@ai-ecoverse/pi-audio';
 import {
   registerFauxRealtime,
   registerFauxSpeech,
@@ -33,6 +33,7 @@ test('tests can run on the faux voice providers alone', async () => {
     id: 'mouth',
     alignment: true,
     chunkChars: 4,
+    audioCost: { perThousandChars: 1000 },
   });
   const spoken = [];
   for await (const event of speak(mouth.model, { text: 'hello!!', voice: 'faux' }))
@@ -43,7 +44,31 @@ test('tests can run on the faux voice providers alone', async () => {
   assert.deepEqual([...audio[0].chunk.data], [...new TextEncoder().encode('hell')]);
   assert.deepEqual(audio[0].alignment.durationMs, [20, 20, 20, 20]);
   assert.equal(spoken.at(-1).type, 'done');
-  assert.equal(spoken.at(-1).usage.output, 0);
+  const usage = spoken.at(-1).usage;
+  assert.equal(usage.input, 0);
+  assert.equal(usage.output, 0);
+  assert.equal(usage.totalTokens, 0);
+  assert.equal(usage.audio.characters, 7);
+  assert.equal(usage.cost.input, 0);
+  assert.equal(usage.cost.output, 7);
+  assert.equal(usage.cost.total, 7);
+  const again = [];
+  for await (const event of speak(mouth.model, { text: 'hello!!', voice: 'faux' }))
+    again.push(event);
+  const total = structuredClone(usage);
+  total.input += again.at(-1).usage.input;
+  total.output += again.at(-1).usage.output;
+  total.cacheRead += again.at(-1).usage.cacheRead;
+  total.cacheWrite += again.at(-1).usage.cacheWrite;
+  total.totalTokens += again.at(-1).usage.totalTokens;
+  total.cost.input += again.at(-1).usage.cost.input;
+  total.cost.output += again.at(-1).usage.cost.output;
+  total.cost.cacheRead += again.at(-1).usage.cost.cacheRead;
+  total.cost.cacheWrite += again.at(-1).usage.cost.cacheWrite;
+  total.cost.total += again.at(-1).usage.cost.total;
+  addAudioCounters(total, again.at(-1).usage);
+  assert.equal(total.audio.characters, 14);
+  assert.equal(total.cost.total, 14);
 
   const talker = registerFauxRealtime({
     api: 'integration-faux-rt',

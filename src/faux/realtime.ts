@@ -1,6 +1,5 @@
 import type { Usage } from '@earendil-works/pi-ai';
 import type { AudioChunk } from '../audio.ts';
-import { blankUsage } from '../blank-usage.ts';
 import {
   type Delivery,
   type DeliverySupport,
@@ -14,6 +13,7 @@ import type {
   RealtimeSession,
 } from '../realtime.ts';
 import { registerRealtimeApiProvider } from '../registry.ts';
+import { priceAudio, type RealtimeAudioCost } from '../usage.ts';
 import { modelKey, pcm, shareApi, zeroCost } from './shared.ts';
 
 export type FauxRealtimeCall =
@@ -43,6 +43,7 @@ export interface FauxRealtimeOptions extends FauxRealtimeFlags {
   id?: string;
   name?: string;
   events?: RealtimeEvent[];
+  audioCost?: RealtimeAudioCost;
 }
 
 export interface FauxRealtime {
@@ -64,7 +65,6 @@ class FauxSession implements RealtimeSession {
   readonly #queue: RealtimeEvent[] = [];
   readonly #waiters: Array<(result: IteratorResultEvent) => void> = [];
   #closed = false;
-  readonly #usage: Usage = blankUsage();
 
   constructor(model: RealtimeModel<string>, calls: FauxRealtimeCall[]) {
     this.model = model;
@@ -118,7 +118,13 @@ class FauxSession implements RealtimeSession {
     this.#calls.push({ method: 'close' });
     this.#closed = true;
     while (this.#waiters.length > 0) this.#waiters.shift()?.({ done: true });
-    return { usage: this.#usage };
+    return {
+      usage: priceAudio(this.model.audioCost, {
+        inputSeconds: 0,
+        outputSeconds: 0,
+        textMessages: 0,
+      }),
+    };
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<RealtimeEvent> {
@@ -173,6 +179,7 @@ export function registerFauxRealtime(options: FauxRealtimeOptions = {}): FauxRea
     truncation: options.truncation ?? 'client',
     liveToolUpdate: true,
     cost: zeroCost,
+    audioCost: options.audioCost ?? {},
   };
   const state: RealtimeState = { model, calls: [], events: options.events ?? [], pending: [] };
   states.set(modelKey(model), state);
