@@ -29,6 +29,8 @@ export {
   openEchoMic,
 } from './echo.ts';
 export { VoiceRequestError } from './errors.ts';
+export type { Mixer, OpenMixerOptions } from './mixer.ts';
+export { openMixer } from './mixer.ts';
 export type {
   Delivery,
   DeliverySupport,
@@ -50,6 +52,13 @@ export {
   listVoiceModels,
   registerVoiceModel,
 } from './models.ts';
+export type {
+  NodeAudioEngine,
+  NodeAudioModule,
+  NodeAudioOptions,
+  NodeAudioSession,
+} from './node-host.ts';
+export { openNodeAudio } from './node-host.ts';
 export type {
   DeliveryPlan,
   RealtimeApiProvider,
@@ -120,3 +129,5 @@ export type {
 export { addAudioCounters, priceAudio } from './usage.ts';
 export type { VadHook, VadUpdate } from './vad.ts';
 export { energyVad } from './vad.ts';
+export { bindWorkletNode, WORKLET_RELEASE } from './worklet/release.ts';
+export { AUDIO_TAP_PROCESSOR, audioTapWorkletUrl } from './worklet/tap.ts';
