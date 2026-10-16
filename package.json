@@ -62,6 +62,10 @@
       "types": "./dist/types/google/index.d.ts",
       "default": "./dist/google/index.js"
     },
+    "./cloudflare": {
+      "types": "./dist/types/cloudflare/index.d.ts",
+      "default": "./dist/cloudflare/index.js"
+    },
     "./durable": {
       "types": "./dist/types/durable/index.d.ts",
       "default": "./dist/durable/index.js"
