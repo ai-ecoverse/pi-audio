@@ -1,0 +1,4 @@
+# pi-audio
+
+`@ai-ecoverse/pi-audio`: voice bindings in pi's style (speech-to-text, text-to-speech, realtime speech) for pi-coding-agent plugins and slicc-agent. Node ≥ 24, ESM, TypeScript in `src/`, built per file (no bundling) into `dist/` by `build.mjs`. Lint with `slicc-lint`. No comments in any file. Agent guidance lives only in this AGENTS.md (≤1000 characters); no CLAUDE.md. Unit tests stay in gitignored `test/unit/`, run only for changed code (100% diff coverage). Regressions are caught by integration tests in `test/integration/` that test behaviour through public surfaces, not internals; every bug fix adds one. Tests never call a real speech or LLM provider. Publish from `main` with semantic-release and fledgling trusted publishing (`release.yml`); conventional commits decide the version.
+Before building something, check whether pi (ai, coding-agent) already provides it.
