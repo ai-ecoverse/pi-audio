@@ -1,72 +1,152 @@
 # pi-audio
 
-Voice bindings for [pi](https://github.com/earendil-works/pi): speech-to-text, text-to-speech and realtime speech, for pi-coding-agent plugins and [slicc-agent](https://github.com/ai-ecoverse/slicc-agent).
+Voice bindings for [pi](https://github.com/earendil-works/pi): speech-to-text, text-to-speech and realtime speech, in pi's own style. Built for pi-coding-agent plugins and [slicc-agent](https://github.com/ai-ecoverse/slicc-agent).
 
 ```sh
 npm install @ai-ecoverse/pi-audio
 ```
 
-The package is a TypeScript ES module library for Node 24 and newer. It peers `@earendil-works/pi-ai`.
+A TypeScript ES module library for Node 24 and newer, and for browsers.
 
-Transcription, speech, and realtime models are added to pi-ai's `ModelTypeMap` by declaration merging. They are not chat models: `Models.getAllModels()` does not list them. Register them with `registerVoiceModel` and look them up with `getVoiceModel` / `listVoiceModels`. Operations dispatch on `model.api` through `registerTranscriptionApiProvider`, `registerSpeechApiProvider`, and `registerRealtimeApiProvider`. A stored chat credential is reused with `resolveVoiceAuth(models, voiceModel)`, which calls `Models.getAuth` for that provider. Provider adapters ship as their own subpath exports (`@ai-ecoverse/pi-audio/openai`, and the rest) so a host loads only the ones it uses. `@ai-ecoverse/pi-audio/faux` registers scripted transcription, speech, and realtime adapters for tests.
+| Peer | Required | Used by |
+| --- | --- | --- |
+| `@earendil-works/pi-ai` | yes | everything |
+| `@earendil-works/pi-durable` | optional | `./durable` |
+| `node-web-audio-api` or `web-audio-api` | optional | Node audio output (`openNodeAudio`) |
+| `@ai-ecoverse/wasm-webrtc-audio-processing` | optional | `./webrtc-aec` |
 
-A voice call reports pi-ai `Usage` with an optional `audio` field: `inputSeconds`, `outputSeconds`, `characters`, and `textMessages`. `AudioUsage` is that `Usage`. Token counters stay at 0. Dollars go in `cost.input`, `cost.output`, and `cost.total`, priced from the model's `audioCost` (`perInputMinute`, `perOutputMinute`, `perThousandChars`, `perTextMessage`) by `priceAudio`. Input seconds and text messages land in `cost.input`. Output seconds and characters land in `cost.output`.
+## Three ways to talk to an agent
 
-pi-durable's `addUsage` (in `packages/durable/src/harness/usage.ts`, not exported from the package) sums a fixed list of token and cost fields and drops `audio`. A host that folds voice usage through pi-durable patches `addUsage` to call `addAudioCounters(total, usage)` beside the reasoning line:
+- **Voice turns.** A provider is the ears and the mouth; the pi agent is the brain. Speech becomes a `UserMessage`, the agent runs a normal turn, and only its final answer is spoken. Works with any speech-to-text and TTS adapter. See `voiceTurns`.
+- **Realtime.** A speech-to-speech model (OpenAI Realtime, xAI Voice, Gemini Live) holds the conversation as the *talker*. The pi agent is the *thinker* behind one tool, `ask_agent`. See `connectRealtime` and `bindThinker`.
+- **Hosted cascades.** ElevenLabs Agents and Fish Audio agents run speech-to-text, an LLM and TTS on their own servers, and plug into the same realtime session and talker/thinker binding. Their talker LLM can be a vendor model or a `CustomLlm`: any OpenAI-compatible endpoint, described with pi's own model fields (`baseUrl`, `id`, `api`, `headers`).
+
+## Models and adapters
+
+Transcription, speech and realtime models are added to pi-ai's `ModelTypeMap` by declaration merging. They aren't chat models, so pi's `Models.getAllModels()` doesn't list them. pi-audio keeps its own catalog: `registerVoiceModel`, `getVoiceModel(type, provider, id)` and `listVoiceModels`. `resolveVoiceAuth(models, voiceModel)` reuses the credential pi already stores for that provider.
+
+Each adapter is its own subpath and registers nothing until you call its `register*` function, which returns an unregister function.
+
+| Subpath | Register | Provides |
+| --- | --- | --- |
+| `./openai` | `registerOpenAI` | OpenAI and OpenRouter transcription (batch and streaming) and speech |
+| `./xai` | `registerXAI`, `registerXaiRealtime` | xAI speech-to-text and TTS (batch and streaming); xAI Voice realtime |
+| `./elevenlabs` | `registerElevenLabs` | Scribe transcription (batch and realtime), TTS with character alignment |
+| `./mistral` | `registerMistral` | Voxtral transcription (batch and realtime), Voxtral TTS |
+| `./fish` | `registerFish` | Fish Audio transcription and TTS |
+| `./google` | `registerGoogle` | Gemini TTS |
+| `./cloudflare` | `registerCloudflare` | Workers AI: Deepgram Flux, Nova-3 and Aura, Whisper, MeloTTS |
+| `./wavespeed` | `registerWaveSpeed` | Batch Whisper and MiniMax speech (not for live voice) |
+| `./openai-realtime` | `registerOpenAIRealtime` | `gpt-realtime-2`, `gpt-realtime-2.1` |
+| `./gemini-live` | `registerGeminiLive` | Gemini Live (`gemini-3.8-live` and others) |
+| `./elevenlabs-agents` | `registerElevenLabsAgents` | ElevenLabs Agents cascade, `provisionAgent`, `elevenLabsCustomLlm` |
+| `./fish-agents` | `registerFishAgents` | Fish Audio agents cascade (WebRTC via LiveKit), `provisionAgent`, `fishCustomLlm` |
+| `./brain` | — | `chatCompletionsBrain`, an optional fetch handler for putting a pi agent behind a `CustomLlm` URL |
+| `./durable` | — | `appendVoiceTruncate` for pi-durable hosts |
+| `./webrtc-aec` | — | WebRTC AEC3 echo canceller for `echo.mode: "wasm"` |
+| `./worklet` | `registerAudioConvertWorklet` | Format conversion in an AudioWorklet |
+| `./faux` | `registerFaux*` | Scripted transcription, speech and realtime adapters for tests |
+
+Model capabilities are fields on the model: `streaming`, `turnDetection` (`none`, `vad` or `semantic`), `textStreaming`, `inputFormats` / `outputFormats` and `voices`, and for realtime models also `toolCalls` (`blocking` or `async`), `delivery`, `truncation` and `transports`. Read these flags instead of checking provider names. Prices are on each model's `audioCost`.
+
+## Speech-to-text and TTS
+
+```ts
+import { getVoiceModel, speak, transcribe } from '@ai-ecoverse/pi-audio';
+import { registerOpenAI } from '@ai-ecoverse/pi-audio/openai';
+
+registerOpenAI();
+const ears = getVoiceModel('transcription', 'openai', 'gpt-4o-transcribe');
+const mouth = getVoiceModel('speech', 'openai', 'gpt-4o-mini-tts');
+
+const heard = await transcribe(ears, { data: wavBytes, mimeType: 'audio/wav' }, { apiKey });
+for await (const event of speak(mouth, { text: heard.text, voice: 'alloy' }, { apiKey })) {
+  if (event.type === 'audio') play(event.chunk);
+}
+```
+
+- `transcribe` is batch. `listen(model, audio)` streams `speech_start`, `partial`, `final` and `turn_end` events, one `turn_end` per user turn. When a model has no turn detection of its own, `listen` ends turns with local voice-activity detection.
+- `speak` takes a string or an `AsyncIterable<string>`, so speech can start on the agent's first sentence. When a model can't take streamed text, `speak` sends one request per sentence.
+- Audio is binary `AudioChunk`s (`Uint8Array` plus an `AudioFormat`). `convertAudio` and `convertAudioSource` convert between PCM16, float32, G.711 μ-law and A-law, channel counts, sample rates and PCM16 WAV. Opus, MP3 and FLAC pass through only when no conversion is needed.
+
+## Voice turns
+
+```ts
+import { listen, speak, voiceTurns } from '@ai-ecoverse/pi-audio';
+
+const options = { ears, mouth, voice: 'alloy', bargeIn: 'onWords' };
+const session = voiceTurns({ listen, speak }, conversation, mic, out, options, signal);
+for await (const caption of session.captions) render(caption);
+```
+
+The host implements `VoiceConversation`: `prompt(message, meta, signal)` runs a pi turn and yields pi-durable-shaped agent events, and `truncate(cut)` records a barge-in.
+
+- **Spoken text.** Only final-answer text is spoken. Thinking, commentary and tool calls stay silent unless `announce(call)` returns a short line.
+- **Barge-in.** Modes are `interrupt`, `onWords` (only after the transcriber returns words), `ignore` and `auto` (follows echo calibration). An interruption aborts the turn and the speech, then truncates the reply to what the user heard. With pi-durable, `appendVoiceTruncate` from `./durable` appends a `voice.truncate` entry whose context edit replaces the assistant message with the heard text and keeps its tool calls. The stored entry is unchanged, so the UI still has the full reply.
+- **Captions.** `session.captions` streams `user_partial` / `user_final`, `agent_generated` (ahead of the voice), `agent_spoken` (following actual playback, per character when the TTS returns alignment) and `agent_cut`. `captionsFromHistory(entries)` rebuilds them after a reload.
+- **Soundscape.** Pass `soundscape` and an `AudioOut` (speech and bed mixed on one output) to play music, ambience or ticking during thinking and tool pauses. `followBed` waits `graceMs` before starting a loop, keeps it across chained tool calls, and ducks it under speech and while the user talks. `session.phases` exposes the same listening, thinking, tool and speaking states for a UI.
+
+## Realtime
+
+```ts
+import { askAgent, bindThinker, connectRealtime, getVoiceModel, mintRealtimeToken } from '@ai-ecoverse/pi-audio';
+import { registerOpenAIRealtime } from '@ai-ecoverse/pi-audio/openai-realtime';
+
+registerOpenAIRealtime();
+const model = getVoiceModel('realtime', 'openai', 'gpt-realtime-2');
+const context = { instructions, tools: [askAgent, readTool], voice: 'marin' };
+const token = await mintRealtimeToken(model, context, { apiKey });
+const session = await connectRealtime(model, context, { token });
+await bindThinker(session, thinker, runDirectTool, {
+  progress: 'silent',
+  result: 'when_idle',
+  ack: 'On it.',
+  directTimeoutMs: 3000,
+  directMaxChars: 4000,
+});
+```
+
+- **Talker tools.** The talker gets `ask_agent` and `read` (`talkerTools`). The host implements `Thinker`, which runs behind `ask_agent`, and the direct `read` tool.
+- **Delivery.** Text pushed into a live voice uses one vocabulary: `interrupt`, `when_idle` or `silent`. Gemini Live maps it natively to its tool scheduling. On blocking models (OpenAI, xAI, Gemini 3.1 Flash Live), `bindThinker` acknowledges `ask_agent` immediately and injects the result later.
+- **Truncation.** On barge-in, `interrupt({ itemId, heardMs })` truncates the provider's context to what was heard: `conversation.item.truncate` on OpenAI and xAI. Gemini has no truncate call.
+- **Browser auth.** `mintRealtimeToken` runs where the API key lives and returns a short-lived `{ value, expiresAt, model, url? }`. It covers OpenAI and xAI client secrets, Gemini constrained auth tokens, ElevenLabs signed URLs and Fish LiveKit sessions.
+- **Cloudflare AI Gateway.** Pass `gateway` to `connectRealtime` to run the same protocols through the gateway.
+- **Sessions.** Gemini Live reconnects on `goAway` with session resumption and uses sliding-window context compression. `RealtimeLedger` meters each session, and `close()` returns its priced usage.
+
+## Echo cancellation
+
+Background beds, and the talker's own voice, leak into the microphone and cause false barge-ins. `EchoControl` decides where cancellation runs:
+
+- `browser`: `getUserMedia({ echoCancellation: true })`, with playback through a local WebRTC loopback so Chrome uses it as its echo reference.
+- `wasm`: an injected `EchoCanceller` fed by the mic and `AudioOut.reference`. `./webrtc-aec` provides one built on WebRTC AEC3: `createWebRtcEcho({ wasm, sampleRate })` for a module you compiled (works in an AudioWorklet), and `createNodeWebRtcEcho({ sampleRate })` on Node.
+- `none`: for headphones.
+
+`calibrateEcho(out, mic, probe, durationMs, signal, canceller?)` plays a probe, measures the delay and the remaining leak, and recommends `interrupt`, `onWords` or `headphones`. Give it at least 3 seconds: AEC3 removes the leak within a second, but its reported cancellation only settles after about 3 seconds of audio.
+
+## Node
+
+`openNodeAudio({ sink: 'none' })` opens an `AudioContext` on Node with `node-web-audio-api`, or the pure-JS `web-audio-api` as a fallback, and works on machines without an audio device. `openMixer(context)` builds the same speech-and-bed graph on a context you already have. On Node:
+
+- echo mode is `wasm` or `none`, and playback is plain Web Audio (no WebRTC loopback);
+- the host supplies the microphone as an `AudioSource`;
+- pi-audio's worklets release themselves through `bindWorkletNode`, because returning `false` doesn't stop a processor in `node-web-audio-api`.
+
+## Usage and pricing
+
+A voice call reports pi-ai `Usage` with an optional `audio` field (`inputSeconds`, `outputSeconds`, `characters`, `textMessages`). Token counters stay at 0, and the dollar cost goes into the existing `cost` fields, priced from the model's `audioCost` by `priceAudio`.
+
+pi-durable's `addUsage` sums a fixed list of fields and drops `audio`. A host that sums voice usage through pi-durable patches it to also call `addAudioCounters`:
 
 ```ts
 if (usage.reasoning !== undefined) total.reasoning = (total.reasoning ?? 0) + usage.reasoning;
 addAudioCounters(total, usage);
 ```
 
-pi-audio does not apply that patch. Hosts such as slicc-agent record monkeypatches in `patches/patches.json`.
+pi-audio doesn't apply that patch itself. Hosts such as slicc-agent record it in their `patches/patches.json`.
 
-`@ai-ecoverse/pi-audio/durable` appends a `voice.truncate` entry for a `VoiceCut`. The entry has no model messages. Its `edits` replace the target assistant message with the text heard so far and keep tool calls. The stored entry stays intact, and pi-durable derives the shorter message for the next model request. `@earendil-works/pi-durable` is an optional peer (`^1.1.0`); the root package does not import it. `VoiceCut.entryId` is the decimal string of pi-durable's numeric entry id.
+## Testing
 
-`@ai-ecoverse/pi-audio/wavespeed` registers WaveSpeed adapters when `registerWaveSpeed()` is called. Both are batch only. `wavespeed-ai/openai-whisper` submits JSON to `/wavespeed-ai/openai-whisper` and polls `/predictions/{id}/result`. Timestamps stay off, so the catalog price is $0.001 per second (`perInputMinute` 0.06). A byte input is uploaded to `/media/upload/binary` first. `minimax/speech-2.6-turbo` is the same submit/poll path for MP3 (`textStreaming: false`, `streaming: false`) at $0.06 per thousand characters. `voice_id` is a caller id (`cloning: true`). These models are not for live voice.
-
-`@ai-ecoverse/pi-audio/cloudflare` registers Workers AI speech adapters when `registerCloudflare()` is called. One Cloudflare token calls `POST /client/v4/accounts/{account_id}/ai/run/{model}`. Put the account in `baseUrl` or the `cf-account-id` header. Streaming models open `wss://gateway.ai.cloudflare.com/v1/{account}/{gateway}/workers-ai?model=…`. The gateway id is the `cf-aig-gateway-id` header, or `default`. `@cf/deepgram/nova-3` streams (`turnDetection: vad`, catalog price $0.0092 per minute). `@cf/deepgram/flux` streams with semantic end of turn ($0.0077 per minute) and has no batch transcribe. `@cf/openai/whisper-large-v3-turbo` is batch only ($0.000513 per minute). `@cf/deepgram/aura-1` ($0.015 per thousand characters), `aura-2-en`, and `aura-2-es` ($0.03) speak MP3 over HTTP and linear16 over the socket (`textStreaming: true`). `@cf/myshell-ai/melotts` is batch MP3 priced at $0.000205 per audio minute. `@cf/pipecat-ai/smart-turn-v2` is not a transcript model, so it is not registered.
-
-`@ai-ecoverse/pi-audio/google` registers Gemini speech adapters when `registerGoogle()` is called. `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` post JSON to `models/{id}:generateContent` with `responseModalities: ["AUDIO"]` and a prebuilt `voiceName`. Unary audio is WAV at 24 kHz unless the format asks for `AUDIO_L16`, `AUDIO_MULAW`, or `AUDIO_ALAW`. `textStreaming` is false. Output audio is priced from 25 tokens per second: $0.0135 per minute for Flash and $0.009 per minute for Flash-Lite through December 31, 2026. Text input is $0.50 per million tokens and is not on `audioCost`. Auth is `x-goog-api-key`.
-
-`@ai-ecoverse/pi-audio/fish` registers Fish Audio speech adapters when `registerFish()` is called. `transcribe-1-pro` posts multipart field `audio` to `/asr` with header `model: transcribe-1-pro` ($0.36 per hour). `ignore_timestamps` is false, so word `segments` and `speaker_turns` come back. There is no realtime ASR. `s2.1-pro` posts JSON to `/tts` for a string and streams MessagePack `text` events on `wss://…/tts/live` for an async iterable (`textStreaming: true`). `s2.1-pro-free` is the same path at $0. Paid speech is $15 per million UTF-8 bytes, stored as $0.015 per thousand characters. Voices are caller `reference_id`s (`cloning: true`).
-
-`@ai-ecoverse/pi-audio/mistral` registers Mistral speech adapters when `registerMistral()` is called. `voxtral-mini-latest` posts multipart audio to `/audio/transcriptions` ($0.003 per minute, diarization on). `voxtral-mini-transcribe-realtime-2602` streams base64 PCM on `wss://…/audio/transcriptions/realtime` after `session.created` ($0.006 per minute). Realtime has no server endpointing, so `turnDetection` is `none` and the registry VAD wrapper applies. `voxtral-mini-tts-2603` posts JSON to `/audio/speech` and reads SSE `speech.audio.delta` float32 PCM at 24 kHz ($0.016 per thousand characters). Hosted voice ids such as `en_paul_neutral` differ from the open-weight presets. `textStreaming` is false.
-
-`@ai-ecoverse/pi-audio/elevenlabs` registers ElevenLabs speech adapters when `registerElevenLabs()` is called. `scribe_v2` posts multipart audio to `/speech-to-text`. `scribe_v2_realtime` streams base64 audio on `wss://…/speech-to-text/realtime` and commits turns with `turn_prediction` (`turnDetection: 'semantic'`). `eleven_flash_v2_5` and `eleven_multilingual_v2` post JSON to `/text-to-speech/{voice}/with-timestamps` for a string and stream text on `stream-input` for an async iterable, with character alignment. `eleven_v3` and `eleven_v4` stay on the HTTP path (`textStreaming: false`). Scribe prices are $0.22 per hour for batch and $0.39 per hour for realtime.
-
-`calibrateEcho(out, mic, probe, durationMs, signal)` plays a probe and aligns the mic with `AudioOut.reference`. `delayMs` is the lag. `cancellationDb` is how far the leaked copy sits below the reference, and `residualDb` is that leak. A quiet leak recommends `interrupt`, a moderate one `onWords`, and a loud one `headphones`. `chooseCapture` keeps `none` and `wasm`, and moves `browser` to `wasm` when cancellation is under 12 dB. `micOpen('browser')` asks for `echoCancellation` and `playback: 'rtc-loopback'`. `wasm` and `none` turn browser cancellation off and use `webaudio`. `assertNodeEcho` rejects `browser` on Node. `openEchoMic` leaves `browser` and `none` audio as captured. `wasm` runs an injected `EchoCanceller` against `reference`. `@ai-ecoverse/pi-audio/webrtc-aec` adapts `@ai-ecoverse/wasm-webrtc-audio-processing` (optional peer, WebRTC AEC3) into that canceller. `createWebRtcEcho({ wasm, sampleRate })` instantiates the module the caller compiled, which is what an AudioWorklet can do. `createNodeWebRtcEcho({ sampleRate })` loads the package's wasm on Node. Mic and reference chunks are converted to mono float at 16 kHz or 48 kHz, and any non-finite sample is replaced with 0 before `cancel`, including after the canceller's own NaN fix. `stats()` supplies `delayMs` and echo return loss enhancement. `calibrateEcho` takes that canceller as its last argument: it cancels the captured pair, keeps the measured residual, and uses those stats for `delayMs` and `cancellationDb` when they are finite. `voiceTurns` passes `options.echo` through `openEchoMic` before `listen`.
-
-`openNodeAudio({ sink: 'none' })` builds that mix on Node. `node-web-audio-api` (optional peer, BSD-3) is the `AudioContext`, created with `sinkId: { type: 'none' }` when the machine has no output device. `web-audio-api` (the audiojs package, MIT) is the pure-JS fallback: it accepts the same sink value but does not render unless a speaker or a stream is attached, so a silent sink is a discarded stream. Hosts pass the microphone as an `AudioSource`. The package does not open `node-web-audio-api`'s mic, and Node echo mode stays `wasm` or `none` with `playback: 'webaudio'`. Finished worklets post `pi-audio-release` and `bindWorkletNode` disconnects them. Returning `false` from `process` does not stop a processor in node-web-audio-api (issue 202). `openMixer(context)` is the same graph on a context the host already opened.
-
-`followBed(bed, soundscape)` cues a `BedChannel` from `VoicePhase`. A loop waits `graceMs` before it starts, so a short gap stays silent. `keep` leaves the current loop running across chained tools. Speech ducks the bed to `duckUnderSpeech`; listening ducks it to `duckUnderUser`. `voiceTurns` does this when `options.soundscape` is set and `out` is an `AudioOut` (`speech`, `bed`, `reference`, `playback`). A plain `AudioSink` still receives only the spoken audio.
-
-`voiceTurns` captions include `agent_spoken`. `upTo` follows `AudioSink` playback: per character when the chunk has alignment, and evenly across the sentence when it does not. `captionsFromHistory(entries)` rebuilds user captions from entries whose `data.source` is `voice`, and agent captions from the assistant text. A `voice.truncate` entry adds `agent_spoken` and `agent_cut` at `heardUpTo`, so the rest of the original text stays available as unheard.
-`@ai-ecoverse/pi-audio/xai` registers xAI speech adapters when `registerXAI()` is called. `grok-voice-transcribe-2.0` posts multipart audio to `/stt` (fields before `file`) and streams raw binary frames on `wss://…/stt` after `transcript.created`, with Smart Turn (`turnDetection: 'semantic'`). The catalog id is shared, so `audioCost` uses the streaming rate of $0.20 per hour. `grok-voice-tts-1.0` posts JSON to `/tts` for a string and streams `text.delta` / `audio.delta` on `wss://…/tts` for an async iterable (`textStreaming: true`). Voices are eve, ara, rex, sal, and leo. Codecs are mp3, pcm, wav, mulaw, and alaw.
-
-`@ai-ecoverse/pi-audio/openai` registers OpenAI and OpenRouter speech adapters when `registerOpenAI()` is called. Batch transcription posts multipart audio to `/audio/transcriptions`. OpenRouter (`provider` `openrouter`, or a base URL on `openrouter.ai`) posts JSON `input_audio` instead. Speech posts JSON to `/audio/speech` and reads the raw audio response. OpenAI can return pcm, mp3, wav, opus, or flac. OpenRouter returns pcm or mp3. Realtime transcription uses a WebSocket at `/realtime?intent=transcription` for `gpt-realtime-whisper` and `gpt-live-transcribe`. The catalog key is type, provider, and id, so the batch model keeps the id `gpt-4o-transcribe`.
-
-`convertAudio` and `convertAudioSource` convert between `AudioFormat`s: PCM16, float32, G.711 μ-law and A-law, mono and stereo, sample rate, and PCM16 WAV. Opus, MP3 and FLAC pass through only when the format does not change. `encodeAudioBase64` and `decodeAudioBase64` are the wire helpers for JSON protocols. `AudioChunk.data` stays binary. The same converter runs in an AudioWorklet from `@ai-ecoverse/pi-audio/worklet` (`AUDIO_CONVERT_PROCESSOR`, `registerAudioConvertWorklet`). Adapters declare `inputFormats` and `outputFormats` and do not resample on their own.
-
-`connectRealtime` rejects a transport the model does not list, and a `resumeHandle` when `resumable` is false, with `VoiceRequestError`. `realtimeSocket(url, options, protocols)` keeps that url and copies `protocols`. When `options.gateway` is set it uses `gateway.url` and puts the subprotocol `cf-aig-authorization.<token>` first, which is how a browser sends a Cloudflare AI Gateway credential on the same realtime protocol.
-
-`planDelivery` reads `RealtimeModel.delivery`. An `unsupported` mode throws `VoiceRequestError`. `when_idle` with `approximate` support waits while the model is producing output and runs on `response_done`, `interrupt`, or `close`. Native `when_idle` is sent immediately so the server can schedule it. `planTruncation` adds `{ itemId, audioEndMs }` only when `truncation` is `client` and `interrupt` was given what the listener heard.
-
-`@ai-ecoverse/pi-audio/openai-realtime` registers `gpt-realtime-2` and `gpt-realtime-2.1`. `@ai-ecoverse/pi-audio/xai` registers `grok-voice-latest`, an OpenAI Realtime dialect: input transcripts arrive as cumulative `updated` snapshots, `inject` speaks with `force_message` (no `response.create`), and `session.update` opts into `resumption` and an optional `replace` map. Reconnect with `resumeHandle`. Output audio is tagged with the transcript range spoken since the previous delta. Both adapters take a recorded `wire` in tests and never call a provider. WebRTC uses that same event protocol on a caller-supplied data-channel wire.
-
-`RealtimeLedger` meters one session. Input seconds come from `appendAudio`. Output seconds come from each `output_audio` event: PCM, mulaw, and alaw from the byte length, and a compressed encoding from character alignment. `sendText` and each delivered `inject` add one text message. Tool results do not. `close()` prices those meters with `priceAudio`. Sum that usage once. `response_done.usage` is the adapter's per-response figure, not a second copy of the session total.
-
-`@ai-ecoverse/pi-audio/gemini-live` registers `gemini-3.8-live`, `gemini-live-2.5-flash-native-audio`, and `gemini-3.1-flash-live-preview`. Setup enables sliding-window compression and session resumption. `gemini-3.8-live` leaves function behavior at the model default and accepts `vocabulary` as `customVocabulary`. The 2.5 model declares `NON_BLOCKING`. The 3.1 preview declares `BLOCKING`. `respond` maps `Delivery` onto `scheduling` (`INTERRUPT`, `WHEN_IDLE`, `SILENT`) and returns `status`, `retryable`, and `message`. A `goAway` reconnects with the latest resumable handle. There is no truncate call. The adapter takes a recorded `wire` and never calls Google.
-
-`mintRealtimeToken(model, constraints, options)` returns `{ value, expiresAt, model, url? }` and calls `options.fetch` (or `globalThis.fetch`). OpenAI `POST /v1/realtime/client_secrets` sends a realtime session with instructions, voice, and tools. xAI `POST /v1/realtime/client_secrets` sends only `expires_after.seconds` of 300. Gemini `POST /v1beta/auth_tokens` locks `models/<id>`, instructions, voice, and tools in `liveConnectConstraints` and returns `name`, which the live adapter sends as `access_token`. ElevenLabs `GET /v1/convai/conversation/get-signed-url` takes `agent_id` (or `GET /conversation/token` when the only transport is WebRTC) and expires in 15 minutes. Fish `POST /v1/agent/sessions` sends `agent_id` plus `overrides.system_prompt` and `overrides.voice_id`. `value` is the LiveKit participant token and `url` is `livekit_url`. `expiresAt` is milliseconds. A numeric `expires_at` below `1e12` is unix seconds.
-
-`@ai-ecoverse/pi-audio/elevenlabs-agents` registers `elevenlabs-agent`, a hosted cascade (`provisioning: "agent"`, `truncation: "server"`, `liveToolUpdate: false`). `provisionAgent` creates or updates the agent and reuses it when the spec hash matches. pi tools become client tools. A string `llm` is a vendor model name. `elevenLabsCustomLlm` sets `llm` to `custom-llm` and sends `custom_llm.url`, `model_id`, `api_type`, and `request_headers` (ElevenLabs `api_key` is a workspace secret reference, not a raw token). `connectRealtime` uses a `RealtimeToken` from `mintRealtimeToken` (`get-signed-url`) when one is passed. Otherwise an API key provisions the agent and mints the signed URL. Silent `inject` sends `contextual_update` with `context_id` `pi-audio`. `close()` prices `audio.inputSeconds` from the wall-clock session at $0.08 per minute.
-
-`@ai-ecoverse/pi-audio/fish-agents` registers `fish-agent` (`transports: ["webrtc"]`, `delivery.silent: "approximate"`, `delivery.interrupt: "native"`). `provisionAgent` creates client tools, writes the draft, and publishes it. `fishCustomLlm` sends `llm.custom.base_url`, `model`, and a raw `api_key`, and rejects `openai-responses`. A `RealtimeToken` with `url` is the LiveKit room from `mintRealtimeToken`; connect does not open a second session. Without a token, connect creates the session and fails on an unknown `transport`. Silent `inject` sends `user.message` with `audio: false` and drops that reply's transcript. The microphone is published after `openEchoMic`. The catalog `audioCost` is zero because Fish has not published a per-minute session rate. The example voice id is the one in Fish's quickstart.
-
-`@ai-ecoverse/pi-audio/brain` exports `chatCompletionsBrain`, a fetch handler for a pi agent behind `CustomLlm.baseUrl`. The session key is Fish `session_id`, or `session_id` inside `fishaudio_extra_body`, `llm_extra_body`, `elevenlabs_extra_body`, or `custom_llm_extra_body` (a string extra body is the key). A hash of the streamed reply prompts only the new user text when it matches. The same user text with a different hash replays that stream. A new user text with a different hash is prompted as `The caller heard:` plus the vendor's copy. Final-answer text is streamed. Request tools are terminal `tool_calls` when `vendorTools` is `terminal`. `filler` is written when no text arrives within `firstTokenMs`. A turn still open at `hardDeadlineMs` ends as an error. Fish recommends a first token under 800 ms and caps a generation at 10 s.
-
-`talkerTools` is `ask_agent` and `read`. pi-audio defines `askAgent` (a pi `Tool` whose parameters are `request` and optional `context`) and the `Thinker` interface. The host implements `Thinker` and supplies `read`. `bindThinker` runs direct tools with `directTimeoutMs` and truncates their text to `directMaxChars`. On a blocking `ask_agent` it answers with `ack` immediately and injects the result later. On an async call it `respond`s with the result and `options.result`. Progress is injected with `options.progress`. `tool_call_cancelled` aborts the thinker and any direct tool. A blocking failure is injected after the acknowledgement, with a `thinker_result` caption. `Thinker.ask` receives the optional `context` string. Closing the session aborts work that is still running. The binding also yields `thinker_progress` / `thinker_result` captions and `thinking` / `tool` / `idle` phases.
+`@ai-ecoverse/pi-audio/faux` registers scripted adapters: `registerFauxTranscription`, `registerFauxSpeech` and `registerFauxRealtime`. Each returns `{ model, unregister, calls, … }`, so tests can script events and inspect what was sent. Use a unique `api` per test and call `unregister()`. Importing `./faux` registers nothing, and the root package doesn't import it.
 
 ## Development
 
@@ -77,7 +157,7 @@ npm test
 ```
 
 - `npm run lint` runs [slicc-lint](https://github.com/ai-ecoverse/slicc-shared-web): Biome, the type check, the no-comments rule, no unit tests in git, and the AGENTS.md limit. lefthook runs the same checks before each commit.
-- `npm test` builds `dist/` and runs the integration tests in `test/integration/`.
+- `npm test` builds `dist/` and runs the integration tests in `test/integration/`. Tests never call a real speech or LLM provider; adapters are tested against recorded fixtures.
 - Unit tests live in the gitignored `test/unit/` and run with `npm run test:unit`.
 
 ## Releases
