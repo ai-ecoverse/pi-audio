@@ -23,6 +23,12 @@ pi-audio does not apply that patch. Hosts such as slicc-agent record monkeypatch
 
 `convertAudio` and `convertAudioSource` convert between `AudioFormat`s: PCM16, float32, G.711 μ-law and A-law, mono and stereo, sample rate, and PCM16 WAV. Opus, MP3 and FLAC pass through only when the format does not change. `encodeAudioBase64` and `decodeAudioBase64` are the wire helpers for JSON protocols. `AudioChunk.data` stays binary. The same converter runs in an AudioWorklet from `@ai-ecoverse/pi-audio/worklet` (`AUDIO_CONVERT_PROCESSOR`, `registerAudioConvertWorklet`). Adapters declare `inputFormats` and `outputFormats` and do not resample on their own.
 
+`connectRealtime` rejects a transport the model does not list, and a `resumeHandle` when `resumable` is false, with `VoiceRequestError`. `realtimeSocket(url, options, protocols)` keeps that url and copies `protocols`. When `options.gateway` is set it uses `gateway.url` and puts the subprotocol `cf-aig-authorization.<token>` first, which is how a browser sends a Cloudflare AI Gateway credential on the same realtime protocol.
+
+`planDelivery` reads `RealtimeModel.delivery`. An `unsupported` mode throws `VoiceRequestError`. `when_idle` with `approximate` support waits while the model is producing output and runs on `response_done`, `interrupt`, or `close`. Native `when_idle` is sent immediately so the server can schedule it. `planTruncation` adds `{ itemId, audioEndMs }` only when `truncation` is `client` and `interrupt` was given what the listener heard.
+
+`RealtimeLedger` meters one session. Input seconds come from `appendAudio`. Output seconds come from each `output_audio` event: PCM, mulaw, and alaw from the byte length, and a compressed encoding from character alignment. `sendText` and each delivered `inject` add one text message. Tool results do not. `close()` prices those meters with `priceAudio`. Sum that usage once. `response_done.usage` is the adapter's per-response figure, not a second copy of the session total.
+
 ## Development
 
 ```sh
