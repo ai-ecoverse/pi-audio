@@ -25,6 +25,10 @@
     ".": {
       "types": "./dist/types/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./faux": {
+      "types": "./dist/types/faux/index.d.ts",
+      "default": "./dist/faux/index.js"
     }
   },
   "files": [
