@@ -71,6 +71,8 @@ export type {
   ThinkerUpdate,
 } from './talker.ts';
 export { askAgent, bindThinker, talkerTools } from './talker.ts';
+export type { RealtimeConstraints } from './tokens.ts';
+export { mintRealtimeToken } from './tokens.ts';
 export type {
   AudioInput,
   ListenOptions,
