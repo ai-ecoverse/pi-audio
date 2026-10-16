@@ -30,6 +30,7 @@ interface MintCall {
   headers: Record<string, string>;
   body?: string;
   field: string;
+  urlField?: string;
   expires: (json: Json, fallback: number) => number;
   fallbackExpires: number;
 }
@@ -213,6 +214,7 @@ function mintCall(
         headers: mergedHeaders(options, { ...jsonHeaders, Authorization: `Bearer ${key}` }),
         body: JSON.stringify(fishBody(constraints)),
         field: 'token',
+        urlField: 'livekit_url',
         expires: fromField('expires_at'),
         fallbackExpires: now,
       };
@@ -228,6 +230,13 @@ function readValue(json: unknown, field: string): string {
   const value = (json as Json)[field];
   if (typeof value === 'string' && value.length > 0) return value;
   throw new VoiceRequestError('error', 'mint failed (empty token)');
+}
+
+function readUrl(json: unknown, field: string | undefined): string | undefined {
+  if (field === undefined) return undefined;
+  const value = (json as Json)[field];
+  if (typeof value === 'string' && value.length > 0) return value;
+  throw new VoiceRequestError('error', 'mint failed (missing livekit url)');
 }
 
 export async function mintRealtimeToken(
@@ -248,9 +257,12 @@ export async function mintRealtimeToken(
   });
   if (!response.ok) throw new VoiceRequestError('error', `mint failed (${response.status})`);
   const json: unknown = await response.json();
-  return {
+  const token: RealtimeToken = {
     value: readValue(json, call.field),
     expiresAt: call.expires(json as Json, call.fallbackExpires),
     model: model.id,
   };
+  const url = readUrl(json, call.urlField);
+  if (url !== undefined) token.url = url;
+  return token;
 }

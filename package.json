@@ -73,6 +73,10 @@
     "./elevenlabs-agents": {
       "types": "./dist/types/elevenlabs-agents/index.d.ts",
       "default": "./dist/elevenlabs-agents/index.js"
+    },
+    "./fish-agents": {
+      "types": "./dist/types/fish-agents/index.d.ts",
+      "default": "./dist/fish-agents/index.js"
     }
   },
   "files": [

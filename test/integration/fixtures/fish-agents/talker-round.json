@@ -1,0 +1,10 @@
+{
+  "tool": {
+    "type": "client_tool.call",
+    "callId": "call-1",
+    "toolName": "read",
+    "params": { "path": "notes.txt" },
+    "expectsResponse": true
+  },
+  "ended": { "type": "session.ended", "reason": "idle" }
+}
