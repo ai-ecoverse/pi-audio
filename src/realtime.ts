@@ -28,6 +28,7 @@ export interface RealtimeToken {
   value: string;
   expiresAt: number;
   model: string;
+  url?: string;
 }
 
 export interface RealtimeOptions extends ProviderRequestOptions {

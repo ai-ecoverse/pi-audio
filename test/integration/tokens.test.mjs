@@ -71,13 +71,18 @@ test('mintRealtimeToken posts vendor fixtures through the public entry', async (
     'https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=agent-1'
   );
 
-  const fish = recorded({ token: 'lk-token', expires_at: '2030-01-01T00:00:00.000Z' });
+  const fish = recorded({
+    token: 'lk-token',
+    livekit_url: 'wss://livekit.example',
+    expires_at: '2030-01-01T00:00:00.000Z',
+  });
   const fishToken = await mintRealtimeToken(
     model('fish-agents'),
     { agentId: 'agent-1', instructions: 'be brief', voice: 'cedar' },
     { apiKey: 'fish', fetch: fish.fetch }
   );
   assert.equal(fishToken.value, 'lk-token');
+  assert.equal(fishToken.url, 'wss://livekit.example');
   assert.deepEqual(fish.requests[0].body, {
     agent_id: 'agent-1',
     overrides: { system_prompt: 'be brief', voice_id: 'cedar' },
