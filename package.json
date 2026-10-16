@@ -85,6 +85,10 @@
     "./fish-agents": {
       "types": "./dist/types/fish-agents/index.d.ts",
       "default": "./dist/fish-agents/index.js"
+    },
+    "./brain": {
+      "types": "./dist/types/brain/index.d.ts",
+      "default": "./dist/brain/index.js"
     }
   },
   "files": [
