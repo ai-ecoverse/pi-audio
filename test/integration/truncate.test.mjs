@@ -70,3 +70,45 @@ test('a voice.truncate edit cuts derived context and leaves the stored entry', a
     await harness.close(BACKGROUND_CONTEXT);
   }
 });
+
+test('a shortened text block drops its thought signature', async () => {
+  const harness = await Harness.open(
+    new MemoryStorage(),
+    { models: createModels(), registry: createRegistry() },
+    BACKGROUND_CONTEXT
+  );
+  try {
+    const conversation = await harness.createConversation(
+      { ownership: { kind: 'ownerless' } },
+      BACKGROUND_CONTEXT
+    );
+    const message = assistant([
+      { type: 'text', text: 'Keep me', textSignature: 'whole' },
+      { type: 'text', text: 'Hello there. friend', textSignature: 'thought' },
+    ]);
+    const stored = await conversation.commit(
+      (tx) => tx.appendEntry(AssistantEntry, conversation.id, { model: [message] }),
+      BACKGROUND_CONTEXT
+    );
+    await appendVoiceTruncate(
+      harness,
+      conversation.id,
+      {
+        entryId: String(stored.id),
+        contentIndex: 1,
+        heardUpTo: 'Hello there.'.length,
+        heardMs: 40,
+      },
+      message,
+      BACKGROUND_CONTEXT
+    );
+    const view = await conversation.context(BACKGROUND_CONTEXT);
+    const derived = view.messages.find((item) => item.role === 'assistant');
+    assert.equal(derived.content[0].text, 'Keep me');
+    assert.equal(derived.content[0].textSignature, 'whole');
+    assert.equal(derived.content[1].text, 'Hello there.');
+    assert.equal(derived.content[1].textSignature, undefined);
+  } finally {
+    await harness.close(BACKGROUND_CONTEXT);
+  }
+});

@@ -88,7 +88,7 @@ test('faux captions reveal with playback and a cut leaves the rest unheard', asy
     revealedCaptions
       .filter((caption) => caption.type === 'agent_spoken')
       .map((caption) => caption.upTo),
-    [4, 8, spoken.length]
+    [1, 5, 9]
   );
   assert.equal(revealedCaptions.find((caption) => caption.type === 'agent_generated').text, spoken);
   revealed.ears.unregister();

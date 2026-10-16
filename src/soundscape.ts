@@ -63,6 +63,9 @@ export function followBed(
   const stop = () => {
     generation += 1;
     clearTimer();
+    if (playing === undefined) return;
+    playing = undefined;
+    bed.stop(fadeOf(soundscape));
   };
 
   const observe = (phase: VoicePhase) => {
@@ -123,10 +126,21 @@ function firstLoop(cues: readonly Cue[]): Extract<Cue, { kind: 'loop' }> | undef
   return undefined;
 }
 
+const sourceIds = new WeakMap<object, number>();
+let sourceSerial = 0;
+
+function sourceIdentity(value: object): number {
+  const existing = sourceIds.get(value);
+  if (existing !== undefined) return existing;
+  sourceSerial += 1;
+  sourceIds.set(value, sourceSerial);
+  return sourceSerial;
+}
+
 function sourceKey(source: CueSource): string {
   if ('url' in source) return `url:${source.url}`;
-  if ('buffer' in source) return `buffer:${source.buffer.length}`;
-  return 'synth';
+  if ('buffer' in source) return `buffer:${sourceIdentity(source.buffer)}`;
+  return `synth:${sourceIdentity(source.synth)}`;
 }
 
 function fadeOf(soundscape: Soundscape): number {

@@ -22,7 +22,9 @@ function keptBlock(block: Block, index: number, cut: VoiceCut): Block | undefine
   const heard = block.text.slice(0, cut.heardUpTo);
   if (heard.length === 0) return undefined;
   if (heard === block.text) return block;
-  return { ...block, text: heard };
+  const shortened = { ...block, text: heard };
+  delete shortened.textSignature;
+  return shortened;
 }
 
 function cutAssistantMessage(message: AssistantMessage, cut: VoiceCut): AssistantMessage {

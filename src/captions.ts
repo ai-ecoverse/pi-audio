@@ -31,10 +31,15 @@ interface HistoryBlock {
   text?: string;
 }
 
+interface IndexedBlock {
+  index: number;
+  text: string;
+}
+
 interface StoredAgent {
   turnId: string;
   utteranceId: string;
-  blocks: string[];
+  blocks: IndexedBlock[];
 }
 
 export function spokenOffset(clock: SpokenClock, offsetMs: number): number {
@@ -101,7 +106,7 @@ export function captionsFromHistory(entries: readonly CaptionHistoryEntry[]): Ca
       type: 'agent_generated',
       turnId,
       utteranceId,
-      text: blocks.join(''),
+      text: joined(blocks),
     });
   }
   return captions;
@@ -120,7 +125,7 @@ function pushUser(
   voice: { confidence?: number }
 ): void {
   const turnId = String(entry.id);
-  const text = textBlocks(message.content).join('');
+  const text = joined(textBlocks(message.content));
   if (voice.confidence === undefined) {
     captions.push({ type: 'user_final', turnId, segmentId: 'turn', text });
     return;
@@ -154,13 +159,16 @@ function noteCut(captions: CaptionEvent[], agents: Map<string, StoredAgent>, dat
   });
 }
 
-function heardInBlocks(blocks: readonly string[], contentIndex: number, heardUpTo: number): number {
+function heardInBlocks(
+  blocks: readonly IndexedBlock[],
+  contentIndex: number,
+  heardUpTo: number
+): number {
   let prior = 0;
-  let index = 0;
   for (const block of blocks) {
-    if (index === contentIndex) return prior + clampHeard(block, heardUpTo);
-    prior += block.length;
-    index += 1;
+    if (block.index === contentIndex) return prior + clampHeard(block.text, heardUpTo);
+    if (block.index > contentIndex) return prior;
+    prior += block.text.length;
   }
   return prior;
 }
@@ -171,12 +179,22 @@ function clampHeard(block: string, heardUpTo: number): number {
   return heardUpTo;
 }
 
-function textBlocks(content: HistoryMessage['content']): string[] {
-  if (typeof content === 'string') return [content];
+function joined(blocks: readonly IndexedBlock[]): string {
+  let text = '';
+  for (const block of blocks) text += block.text;
+  return text;
+}
+
+function textBlocks(content: HistoryMessage['content']): IndexedBlock[] {
+  if (typeof content === 'string') return [{ index: 0, text: content }];
   if (!content) return [];
-  const blocks: string[] = [];
+  const blocks: IndexedBlock[] = [];
+  let index = 0;
   for (const block of content) {
-    if (block.type === 'text' && typeof block.text === 'string') blocks.push(block.text);
+    if (block.type === 'text' && typeof block.text === 'string') {
+      blocks.push({ index, text: block.text });
+    }
+    index += 1;
   }
   return blocks;
 }
