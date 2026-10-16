@@ -1,1 +1,62 @@
-export {};
+export type {
+  AudioChunk,
+  AudioEncoding,
+  AudioFormat,
+  AudioSink,
+  AudioSource,
+  AudioTag,
+  CharAlignment,
+  TextSpan,
+} from './audio.ts';
+export { resolveVoiceAuth } from './auth.ts';
+export { blankUsage } from './blank-usage.ts';
+export { VoiceRequestError } from './errors.ts';
+export type {
+  Delivery,
+  DeliverySupport,
+  KnownRealtimeApi,
+  KnownSpeechApi,
+  KnownTranscriptionApi,
+  RealtimeApi,
+  RealtimeModel,
+  SpeechApi,
+  SpeechModel,
+  TranscriptionApi,
+  TranscriptionModel,
+  VoiceInfo,
+  VoiceModel,
+  VoiceModelType,
+} from './models.ts';
+export {
+  getVoiceModel,
+  listVoiceModels,
+  registerVoiceModel,
+} from './models.ts';
+export type {
+  RealtimeApiProvider,
+  RealtimeContext,
+  RealtimeEvent,
+  RealtimeOptions,
+  RealtimeSession,
+  RealtimeToken,
+} from './realtime.ts';
+export {
+  connectRealtime,
+  listen,
+  registerRealtimeApiProvider,
+  registerSpeechApiProvider,
+  registerTranscriptionApiProvider,
+  speak,
+  transcribe,
+} from './registry.ts';
+export type { SpeechApiProvider, SpeechEvent, SpeechInput } from './speech.ts';
+export { SpeechEventStream } from './speech.ts';
+export type {
+  AudioInput,
+  ListenOptions,
+  Transcript,
+  TranscriptionApiProvider,
+  TranscriptionEvent,
+  TranscriptSegment,
+} from './transcription.ts';
+export { TranscriptionEventStream } from './transcription.ts';
