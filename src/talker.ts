@@ -28,7 +28,12 @@ export type ThinkerUpdate =
   | { type: 'result'; message: ToolResultMessage };
 
 export interface Thinker {
-  ask(request: string, heard: string[], signal: AbortSignal): AsyncIterable<ThinkerUpdate>;
+  ask(
+    request: string,
+    heard: string[],
+    signal: AbortSignal,
+    context?: string
+  ): AsyncIterable<ThinkerUpdate>;
 }
 
 export interface BindThinkerOptions {
@@ -145,7 +150,21 @@ function capResult(result: ToolResultMessage, maxChars: number): ToolResultMessa
 interface AskJob {
   abort: AbortController;
   answered: boolean;
+  dropped: boolean;
   call: ToolCall;
+  kind: 'ask' | 'direct';
+}
+
+function requestContext(call: ToolCall): string | undefined {
+  const value = call.arguments.context;
+  return typeof value === 'string' ? value : undefined;
+}
+
+function track(pending: Set<Promise<void>>, promise: Promise<void>): void {
+  pending.add(promise);
+  void promise.finally(() => {
+    pending.delete(promise);
+  });
 }
 
 export function bindThinker(
@@ -175,44 +194,31 @@ async function run(
 ): Promise<void> {
   const heard: string[] = [];
   const running = new Map<string, AskJob>();
+  const pending = new Set<Promise<void>>();
   for await (const event of session) {
     if (event.type === 'input_transcript' && event.final) heard.push(`user: ${event.text}`);
     if (event.type === 'output_transcript' && event.final) heard.push(`talker: ${event.text}`);
     if (event.type === 'tool_call_cancelled') {
-      const job = running.get(event.callId);
-      if (!job) continue;
-      job.abort.abort();
-      if (!job.answered) {
-        job.answered = true;
-        send(() => session.respond(event.callId, errorResult(job.call, new Error('cancelled'))));
-      }
+      cancelJob(session, running, event.callId);
       continue;
     }
     if (event.type !== 'tool_call') continue;
     const call = event.call;
     if (call.name !== askAgent.name) {
-      phases.push({
-        phase: 'tool',
-        toolName: call.name,
-        toolCallId: call.id,
-        args: call.arguments,
-      });
-      void direct(call, AbortSignal.timeout(options.directTimeoutMs))
-        .then((result) => {
-          send(() => session.respond(call.id, capResult(result, options.directMaxChars)));
-          phases.push({ phase: 'idle' });
-        })
-        .catch((error: unknown) => {
-          send(() => session.respond(call.id, errorResult(call, error)));
-          phases.push({ phase: 'idle' });
-        });
+      track(pending, runDirect(session, direct, options, phases, running, call));
       continue;
     }
-    const job: AskJob = { abort: new AbortController(), answered: event.blocking, call };
+    const job: AskJob = {
+      abort: new AbortController(),
+      answered: false,
+      dropped: false,
+      call,
+      kind: 'ask',
+    };
     running.set(call.id, job);
     phases.push({ phase: 'thinking' });
     if (event.blocking) send(() => session.respond(call.id, acknowledged(call, options.ack)));
-    void followAsk(
+    const ask = followAsk(
       session,
       thinker,
       options,
@@ -224,7 +230,56 @@ async function run(
       event.blocking,
       job
     );
+    track(pending, ask);
   }
+  for (const job of running.values()) {
+    job.dropped = true;
+    job.abort.abort();
+  }
+  await Promise.allSettled([...pending]);
+}
+
+function cancelJob(session: RealtimeSession, running: Map<string, AskJob>, callId: string): void {
+  const job = running.get(callId);
+  if (!job) return;
+  job.abort.abort();
+  job.dropped = true;
+  if (job.kind !== 'ask' || job.answered) return;
+  job.answered = true;
+  send(() => session.respond(callId, errorResult(job.call, new Error('cancelled'))));
+}
+
+function runDirect(
+  session: RealtimeSession,
+  direct: (call: ToolCall, signal: AbortSignal) => Promise<ToolResultMessage>,
+  options: BindThinkerOptions,
+  phases: PushStream<ThinkerPhase>,
+  running: Map<string, AskJob>,
+  call: ToolCall
+): Promise<void> {
+  const abort = new AbortController();
+  const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(options.directTimeoutMs)]);
+  const job: AskJob = { abort, answered: false, dropped: false, call, kind: 'direct' };
+  running.set(call.id, job);
+  phases.push({
+    phase: 'tool',
+    toolName: call.name,
+    toolCallId: call.id,
+    args: call.arguments,
+  });
+  return direct(call, signal)
+    .then((result) => {
+      if (job.dropped) return;
+      send(() => session.respond(call.id, capResult(result, options.directMaxChars)));
+    })
+    .catch((error: unknown) => {
+      if (job.dropped) return;
+      send(() => session.respond(call.id, errorResult(call, error)));
+    })
+    .finally(() => {
+      running.delete(call.id);
+      phases.push({ phase: 'idle' });
+    });
 }
 
 async function followAsk(
@@ -243,7 +298,8 @@ async function followAsk(
     for await (const update of thinker.ask(
       String(call.arguments.request),
       heard.slice(-heardLimit),
-      job.abort.signal
+      job.abort.signal,
+      requestContext(call)
     )) {
       if (job.abort.signal.aborted) break;
       if (update.type === 'progress') {
@@ -262,10 +318,17 @@ async function followAsk(
       else send(() => session.respond(call.id, update.message, options.result));
     }
   } catch (error) {
-    if (!job.abort.signal.aborted && !job.answered) {
-      job.answered = true;
-      send(() => session.respond(call.id, errorResult(call, error)));
-    }
+    if (job.abort.signal.aborted || job.answered) return;
+    job.answered = true;
+    const message = errorResult(call, error);
+    captions.push({
+      type: 'thinker_result',
+      callId: call.id,
+      summary: textOf(message),
+      isError: true,
+    });
+    if (blocking) send(() => session.inject(textOf(message), options.result));
+    else send(() => session.respond(call.id, message));
   } finally {
     running.delete(call.id);
     phases.push({ phase: 'idle' });

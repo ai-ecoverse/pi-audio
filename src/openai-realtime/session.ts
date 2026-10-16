@@ -86,6 +86,7 @@ function openaiSession(context: RealtimeContext, model: RealtimeModel<string>): 
     audio: {
       input: {
         format: { type: 'audio/pcm', rate: model.inputFormat.sampleRate },
+        transcription: { model: 'gpt-4o-mini-transcribe' },
         turn_detection: { type: 'server_vad' },
       },
       output: {
@@ -108,7 +109,10 @@ function xaiSession(
     tools: context.tools.map(functionTool),
     resumption: { enabled: true },
     audio: {
-      input: { format: { type: 'audio/pcm', rate: model.inputFormat.sampleRate } },
+      input: {
+        format: { type: 'audio/pcm', rate: model.inputFormat.sampleRate },
+        transcription: { model: 'grok-transcribe' },
+      },
       output: { format: { type: 'audio/pcm', rate: model.outputFormat.sampleRate } },
     },
   };
@@ -239,6 +243,9 @@ class VendorSession implements RealtimeSession {
   #closed = false;
   #usage: Usage | undefined;
   #lastItem = '';
+  #busy = false;
+  #heldCreate = false;
+  readonly #calls = new Set<string>();
 
   constructor(
     model: RealtimeModel<string>,
@@ -272,7 +279,7 @@ class VendorSession implements RealtimeSession {
     this.#assertOpen();
     this.#ledger.addText();
     this.#send(userItem(textValue));
-    this.#send(responseCreate());
+    this.#armCreate(false);
   }
 
   inject(textValue: string, delivery: Delivery): void {
@@ -288,7 +295,9 @@ class VendorSession implements RealtimeSession {
     this.#assertOpen();
     const send = (): void => {
       this.#send(toolOutput(callId, result));
-      if (delivery !== 'silent') this.#send(responseCreate());
+      this.#calls.delete(callId);
+      if (delivery !== 'silent') this.#armCreate(true);
+      else if (this.#heldCreate && this.#calls.size === 0) this.#armCreate(false);
     };
     if (delivery === undefined) {
       send();
@@ -372,7 +381,7 @@ class VendorSession implements RealtimeSession {
       return;
     }
     this.#send(userItem(textValue));
-    if (delivery !== 'silent') this.#send(responseCreate());
+    if (delivery !== 'silent') this.#armCreate(false);
   }
 
   #send(event: JsonObject): void {
@@ -414,12 +423,28 @@ class VendorSession implements RealtimeSession {
     });
   }
 
-  #transcript(itemId: string, delta: string, final: boolean): void {
+  #armCreate(waitForCalls: boolean): void {
+    if (this.#busy || (waitForCalls && this.#calls.size > 0)) {
+      this.#heldCreate = true;
+      return;
+    }
+    this.#heldCreate = false;
+    this.#busy = true;
+    this.#send(responseCreate());
+  }
+
+  #releaseResponse(): void {
+    this.#busy = false;
+    if (this.#heldCreate && this.#calls.size === 0) this.#armCreate(false);
+  }
+
+  #transcript(itemId: string, value: string, final: boolean): void {
     const pending = this.#pendingFor(itemId);
-    const end = pending.cursor + delta.length;
-    const tagged = delta.length === 0 ? undefined : end;
+    const addition = final ? value.slice(pending.cursor) : value;
+    const end = pending.cursor + addition.length;
+    const tagged = addition.length === 0 ? undefined : end;
     for (const event of takeAudio(pending, itemId, this.#format, tagged)) this.#push(event);
-    this.#push({ type: 'output_transcript', itemId, text: delta, final });
+    this.#push({ type: 'output_transcript', itemId, text: value, final });
   }
 
   #input(itemId: string, transcript: string, mode: 'append' | 'replace', final: boolean): void {
@@ -436,12 +461,14 @@ class VendorSession implements RealtimeSession {
   }
 
   #functionCall(event: Record<string, unknown>): void {
+    const id = text(event.call_id);
+    if (id.length > 0) this.#calls.add(id);
     this.#push({
       type: 'tool_call',
       blocking: this.model.toolCalls === 'blocking',
       call: {
         type: 'toolCall',
-        id: text(event.call_id),
+        id,
         name: text(event.name),
         arguments: argumentsOf(event.arguments),
       },
@@ -449,6 +476,7 @@ class VendorSession implements RealtimeSession {
   }
 
   #responseDone(event: Record<string, unknown>): void {
+    this.#releaseResponse();
     const response = record(event.response);
     const output = response === undefined ? undefined : response.output;
     const first = Array.isArray(output) ? record(output[0]) : undefined;

@@ -13,6 +13,7 @@ export interface VoiceWire {
 export interface VoiceSocket {
   send(data: string): void;
   close(): void;
+  addEventListener(type: 'open', listener: () => void): void;
   addEventListener(type: 'message', listener: (event: { data: unknown }) => void): void;
   addEventListener(type: 'close', listener: () => void): void;
   addEventListener(type: 'error', listener: () => void): void;
@@ -34,8 +35,10 @@ export function openVoiceSocket(
     headers: target.headers,
   });
   const queue: string[] = [];
+  const outgoing: string[] = [];
   const waiters: Array<(result: IteratorResult<string>) => void> = [];
   let closed = false;
+  let opened = false;
 
   const push = (value: string): void => {
     if (closed) return;
@@ -51,6 +54,11 @@ export function openVoiceSocket(
     waiters.length = 0;
   };
 
+  socket.addEventListener('open', () => {
+    opened = true;
+    const queued = outgoing.splice(0);
+    for (const data of queued) socket.send(data);
+  });
   socket.addEventListener('message', (event) => {
     push(typeof event.data === 'string' ? event.data : String(event.data));
   });
@@ -59,6 +67,11 @@ export function openVoiceSocket(
 
   return {
     send(data) {
+      if (closed) return;
+      if (!opened) {
+        outgoing.push(data);
+        return;
+      }
       socket.send(data);
     },
     close() {
