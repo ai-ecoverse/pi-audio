@@ -31,6 +31,8 @@ pi-audio does not apply that patch. Hosts such as slicc-agent record monkeypatch
 
 `RealtimeLedger` meters one session. Input seconds come from `appendAudio`. Output seconds come from each `output_audio` event: PCM, mulaw, and alaw from the byte length, and a compressed encoding from character alignment. `sendText` and each delivered `inject` add one text message. Tool results do not. `close()` prices those meters with `priceAudio`. Sum that usage once. `response_done.usage` is the adapter's per-response figure, not a second copy of the session total.
 
+`talkerTools` is `ask_agent` and `read`. pi-audio defines `askAgent` (a pi `Tool` whose parameters are `request` and optional `context`) and the `Thinker` interface. The host implements `Thinker` and supplies `read`. `bindThinker` runs direct tools with `directTimeoutMs` and truncates their text to `directMaxChars`. On a blocking `ask_agent` it answers with `ack` immediately and injects the result later. On an async call it `respond`s with the result and `options.result`. Progress is injected with `options.progress`. `tool_call_cancelled` aborts the thinker. The binding also yields `thinker_progress` / `thinker_result` captions and `thinking` / `tool` / `idle` phases.
+
 ## Development
 
 ```sh

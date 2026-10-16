@@ -62,6 +62,15 @@ export {
 export type { SpeechApiProvider, SpeechEvent, SpeechInput } from './speech.ts';
 export { SpeechEventStream } from './speech.ts';
 export type {
+  BindThinkerOptions,
+  BoundThinker,
+  Thinker,
+  ThinkerCaption,
+  ThinkerPhase,
+  ThinkerUpdate,
+} from './talker.ts';
+export { askAgent, bindThinker, talkerTools } from './talker.ts';
+export type {
   AudioInput,
   ListenOptions,
   Transcript,
