@@ -1,6 +1,7 @@
 import type { ProviderRequestOptions } from '@earendil-works/pi-ai';
 import type { AudioSource } from './audio.ts';
 import { speakInSentences } from './chunk-speech.ts';
+import { VoiceRequestError } from './errors.ts';
 import type { RealtimeModel, SpeechModel, TranscriptionModel } from './models.ts';
 import type {
   RealtimeApiProvider,
@@ -99,6 +100,14 @@ export function connectRealtime(
   context: RealtimeContext,
   options?: RealtimeOptions
 ): Promise<RealtimeSession> {
+  if (options?.transport !== undefined && !model.transports.includes(options.transport)) {
+    return Promise.reject(
+      new VoiceRequestError('error', `unsupported transport: ${options.transport}`)
+    );
+  }
+  if (options?.resumeHandle !== undefined && !model.resumable) {
+    return Promise.reject(new VoiceRequestError('error', 'session is not resumable'));
+  }
   const connect = realtimeApis.get(model.api)?.provider.connect;
   if (!connect) return Promise.reject(missing(model.api));
   return connect(model, context, options);

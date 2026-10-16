@@ -39,13 +39,17 @@ export {
   registerVoiceModel,
 } from './models.ts';
 export type {
+  DeliveryPlan,
   RealtimeApiProvider,
   RealtimeContext,
   RealtimeEvent,
   RealtimeOptions,
   RealtimeSession,
+  RealtimeSocket,
   RealtimeToken,
+  TruncationPlan,
 } from './realtime.ts';
+export { planDelivery, planTruncation, RealtimeLedger, realtimeSocket } from './realtime.ts';
 export {
   connectRealtime,
   listen,
