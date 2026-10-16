@@ -50,6 +50,10 @@
       "types": "./dist/types/elevenlabs/index.d.ts",
       "default": "./dist/elevenlabs/index.js"
     },
+    "./mistral": {
+      "types": "./dist/types/mistral/index.d.ts",
+      "default": "./dist/mistral/index.js"
+    },
     "./durable": {
       "types": "./dist/types/durable/index.d.ts",
       "default": "./dist/durable/index.js"
