@@ -46,6 +46,10 @@
       "types": "./dist/types/xai/index.d.ts",
       "default": "./dist/xai/index.js"
     },
+    "./elevenlabs": {
+      "types": "./dist/types/elevenlabs/index.d.ts",
+      "default": "./dist/elevenlabs/index.js"
+    },
     "./durable": {
       "types": "./dist/types/durable/index.d.ts",
       "default": "./dist/durable/index.js"
