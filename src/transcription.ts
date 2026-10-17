@@ -35,6 +35,7 @@ export interface ListenOptions extends ProviderRequestOptions {
   language?: string;
   vocabulary?: string[];
   vad?: VadHook;
+  drainTimeoutMs?: number;
 }
 
 function blankTranscript(): Transcript {

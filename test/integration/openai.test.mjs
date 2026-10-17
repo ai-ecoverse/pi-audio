@@ -114,3 +114,234 @@ async function waitFor(predicate) {
   }
   throw new Error('timed out');
 }
+
+function gatedAudio() {
+  const gate = Promise.withResolvers();
+  async function* audio() {
+    yield { data: new Uint8Array(4800), format: pcm, timestamp: 0 };
+    await gate.promise;
+  }
+  return { audio: audio(), end: gate.resolve };
+}
+
+async function vadSession(options, id = 'gpt-realtime-whisper') {
+  const release = registerOpenAI();
+  const previous = globalThis.WebSocket;
+  globalThis.WebSocket = FakeSocket;
+  FakeSocket.latest = undefined;
+  const model = getVoiceModel('transcription', 'openai', id);
+  const { audio, end } = gatedAudio();
+  const events = [];
+  const pending = (async () => {
+    for await (const event of listen(model, audio, { apiKey: 'sk', ...options })) {
+      events.push(event);
+    }
+    return events;
+  })();
+  const socket = await waitSocket();
+  socket.emit('open', {});
+  await waitFor(() => socket.sent.some((message) => message.includes('append')));
+  const say = (event) => socket.emit('message', { data: JSON.stringify(event) });
+  const restore = () => {
+    globalThis.WebSocket = previous;
+    release();
+  };
+  return { socket, say, end, pending, events, restore };
+}
+
+const commits = (socket) => socket.sent.filter((message) => message.includes('commit')).length;
+
+test('listen waits for an utterance still in progress when the audio ends', async () => {
+  const session = await vadSession();
+  try {
+    const { socket, say } = session;
+    say({ type: 'input_audio_buffer.speech_started', item_id: 'a', audio_start_ms: 0 });
+    say({ type: 'input_audio_buffer.speech_stopped', item_id: 'a' });
+    say({ type: 'input_audio_buffer.committed', item_id: 'a' });
+    say({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'a',
+      transcript: 'one',
+    });
+    say({ type: 'input_audio_buffer.speech_started', item_id: 'b', audio_start_ms: 900 });
+    say({ type: 'conversation.item.input_audio_transcription.delta', item_id: 'b', delta: 'tw' });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    session.end();
+    await waitFor(() => commits(socket) === 1);
+    assert.equal(
+      session.events.some((event) => event.type === 'done'),
+      false
+    );
+    say({ type: 'input_audio_buffer.committed', item_id: 'b' });
+    say({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'b',
+      transcript: 'two',
+    });
+    const events = await session.pending;
+    const tail = events.slice(-3).map((event) => [event.type, event.text]);
+    assert.deepEqual(tail, [
+      ['final', 'two'],
+      ['turn_end', 'two'],
+      ['done', undefined],
+    ]);
+    assert.equal(events.at(-1).transcript.text, 'one two');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen waits for a committed turn and tolerates an empty final commit', async () => {
+  const session = await vadSession();
+  try {
+    const { socket, say } = session;
+    say({ type: 'input_audio_buffer.speech_started', item_id: 'a' });
+    session.end();
+    await waitFor(() => commits(socket) === 1);
+    say({ type: 'input_audio_buffer.speech_stopped', item_id: 'a' });
+    say({ type: 'input_audio_buffer.committed', item_id: 'a' });
+    say({ type: 'error', error: { code: 'input_audio_buffer_commit_empty', message: 'empty' } });
+    say({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'a',
+      transcript: 'late',
+    });
+    const events = await session.pending;
+    assert.equal(
+      events.some((event) => event.type === 'error'),
+      false
+    );
+    assert.equal(events.at(-1).transcript.text, 'late');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen ends at once when no turn is in flight', async () => {
+  const session = await vadSession();
+  try {
+    const { socket, say } = session;
+    say({ type: 'input_audio_buffer.committed', item_id: 'a' });
+    say({ type: 'conversation.item.input_audio_transcription.failed', item_id: 'a' });
+    say({ type: 'input_audio_buffer.committed', item_id: 'b' });
+    say({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'b',
+      transcript: 'only',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    session.end();
+    const events = await session.pending;
+    assert.equal(commits(socket), 0);
+    assert.equal(events.at(-1).transcript.text, 'only');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen commits speech that starts after the audio ends', async () => {
+  const session = await vadSession({ drainTimeoutMs: 1000 });
+  try {
+    const { socket, say } = session;
+    session.end();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    say({ type: 'input_audio_buffer.speech_started', item_id: 'a' });
+    await waitFor(() => commits(socket) === 1);
+    say({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'tail' });
+    const events = await session.pending;
+    assert.equal(events.at(-1).transcript.text, 'tail');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen emits what it heard when the drain times out', async () => {
+  const session = await vadSession({ drainTimeoutMs: 20 });
+  try {
+    const { say } = session;
+    say({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'first' });
+    say({ type: 'input_audio_buffer.speech_started', item_id: 'b' });
+    say({ type: 'conversation.item.input_audio_transcription.delta', item_id: 'b', delta: 'half' });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const ended = performance.now();
+    session.end();
+    const events = await session.pending;
+    assert.ok(performance.now() - ended >= 15);
+    const tail = events.slice(-3).map((event) => [event.type, event.text]);
+    assert.deepEqual(tail, [
+      ['final', 'half'],
+      ['turn_end', 'half'],
+      ['done', undefined],
+    ]);
+    assert.equal(events.at(-1).transcript.text, 'first half');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen waits for a turn whose speech stopped but is not yet committed', async () => {
+  const session = await vadSession();
+  try {
+    const { socket, say } = session;
+    say({ type: 'input_audio_buffer.committed', item_id: 'a' });
+    say({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'a',
+      transcript: 'one',
+    });
+    say({ type: 'input_audio_buffer.speech_started', item_id: 'b' });
+    say({ type: 'input_audio_buffer.speech_stopped', item_id: 'b' });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    session.end();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(commits(socket), 0);
+    assert.equal(
+      session.events.some((event) => event.type === 'done'),
+      false
+    );
+    say({ type: 'input_audio_buffer.committed', item_id: 'b' });
+    say({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'b',
+      transcript: 'two',
+    });
+    const events = await session.pending;
+    assert.equal(events.at(-1).transcript.text, 'one two');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen ends at once when the only turn fails to transcribe', async () => {
+  const session = await vadSession({ drainTimeoutMs: 5000 });
+  try {
+    const { say } = session;
+    say({ type: 'input_audio_buffer.speech_started', item_id: 'a' });
+    say({ type: 'input_audio_buffer.speech_stopped', item_id: 'a' });
+    say({ type: 'input_audio_buffer.committed', item_id: 'a' });
+    session.end();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const failed = performance.now();
+    say({ type: 'conversation.item.input_audio_transcription.failed', item_id: 'a' });
+    const events = await session.pending;
+    assert.ok(performance.now() - failed < 1000);
+    assert.equal(events.at(-1).transcript.text, '');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen reports an empty commit without turn detection', async () => {
+  const session = await vadSession({}, 'gpt-live-transcribe');
+  try {
+    const { socket, say } = session;
+    session.end();
+    await waitFor(() => commits(socket) === 1);
+    say({ type: 'error', error: { code: 'input_audio_buffer_commit_empty', message: 'empty' } });
+    const events = await session.pending;
+    assert.equal(events.at(-1).type, 'error');
+    assert.equal(events.at(-1).error, 'empty');
+  } finally {
+    session.restore();
+  }
+});

@@ -23,6 +23,29 @@ interface TurnState {
   bytes: number;
   audioDone: boolean;
   failed: boolean;
+  vad: boolean;
+  speaking: boolean;
+  stopped: boolean;
+  settled: number;
+  committing: boolean;
+  flushed: boolean;
+  pending: Set<string>;
+}
+
+const DRAIN_TIMEOUT_MS = 10_000;
+
+function inFlight(state: TurnState): boolean {
+  return state.speaking || state.committing || state.pending.size > 0;
+}
+
+function settle(state: TurnState, item: string | undefined) {
+  const key = item === undefined ? '0' : item;
+  state.settled += 1;
+  if (state.pending.has(key)) state.pending.delete(key);
+  else {
+    state.committing = false;
+    state.speaking = false;
+  }
 }
 
 function turnDetection(model: TranscriptionModel<string>): Record<string, unknown> | null {
@@ -74,17 +97,44 @@ async function messageText(data: unknown): Promise<string> {
   throw new Error('Unsupported realtime message');
 }
 
+function applyTurnEvent(
+  type: string | undefined,
+  event: Record<string, unknown>,
+  state: TurnState,
+  push: (event: TranscriptionEvent) => void
+): boolean {
+  if (type === 'input_audio_buffer.speech_started') {
+    const at = numberField(event, 'audio_start_ms');
+    state.speaking = true;
+    state.stopped = false;
+    push({ type: 'speech_start', at: at === undefined ? 0 : at });
+    return true;
+  }
+  if (type === 'input_audio_buffer.speech_stopped') {
+    state.stopped = true;
+    return true;
+  }
+  if (type === 'input_audio_buffer.committed') {
+    const item = stringField(event, 'item_id');
+    state.speaking = false;
+    state.committing = false;
+    state.pending.add(item === undefined ? '0' : item);
+    return true;
+  }
+  if (type === 'conversation.item.input_audio_transcription.failed') {
+    settle(state, stringField(event, 'item_id'));
+    return true;
+  }
+  return false;
+}
+
 function applyEvent(
   event: Record<string, unknown>,
   state: TurnState,
   push: (event: TranscriptionEvent) => void
 ) {
   const type = stringField(event, 'type');
-  if (type === 'input_audio_buffer.speech_started') {
-    const at = numberField(event, 'audio_start_ms');
-    push({ type: 'speech_start', at: at === undefined ? 0 : at });
-    return;
-  }
+  if (applyTurnEvent(type, event, state, push)) return;
   if (type === 'conversation.item.input_audio_transcription.delta') {
     const item = stringField(event, 'item_id');
     state.segmentId = item === undefined ? '0' : item;
@@ -96,6 +146,7 @@ function applyEvent(
   if (type === 'conversation.item.input_audio_transcription.completed') {
     const transcript = stringField(event, 'transcript');
     const text = transcript === undefined ? state.partial : transcript;
+    settle(state, stringField(event, 'item_id'));
     state.turns.push(text);
     state.partial = '';
     push({ type: 'final', segmentId: state.segmentId, text });
@@ -105,6 +156,11 @@ function applyEvent(
   if (type === 'error') {
     const detail = event.error;
     const message = isRecord(detail) ? stringField(detail, 'message') : undefined;
+    const code = isRecord(detail) ? stringField(detail, 'code') : undefined;
+    if (code === 'input_audio_buffer_commit_empty' && state.flushed && state.vad) {
+      state.committing = false;
+      return;
+    }
     state.failed = true;
     push({
       type: 'error',
@@ -157,6 +213,13 @@ async function pumpListen(
     bytes: 0,
     audioDone: false,
     failed: false,
+    vad: model.turnDetection !== 'none',
+    speaking: false,
+    stopped: false,
+    settled: 0,
+    committing: false,
+    flushed: false,
+    pending: new Set(),
   };
   let finished = false;
   const push = (event: TranscriptionEvent) => {
@@ -180,9 +243,16 @@ async function pumpListen(
       'realtime',
       `openai-insecure-api-key.${apiKey}`,
     ]);
+    const live = socket;
+    const commit = () => {
+      if (finished) return;
+      state.committing = true;
+      state.flushed = true;
+      live.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+    };
     let incoming = Promise.resolve();
     socket.addEventListener('message', (event) => {
-      incoming = incoming.then(() => onMessage(event.data, state, push, wake));
+      incoming = incoming.then(() => onMessage(event.data, state, push, wake, commit));
     });
     socket.addEventListener('close', () => wake?.());
     await openSocket(socket, (message) => {
@@ -202,11 +272,21 @@ async function pumpListen(
       );
     }
     state.audioDone = true;
-    if (model.turnDetection === 'none') {
-      socket.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+    if (!state.vad || (state.speaking && !state.stopped)) commit();
+    if (!finished && (inFlight(state) || state.settled === 0)) {
+      const timeout = options?.drainTimeoutMs ?? DRAIN_TIMEOUT_MS;
+      const timer = setTimeout(() => wake?.(), timeout);
+      await wait;
+      clearTimeout(timer);
     }
-    if (!finished && (model.turnDetection === 'none' || state.turns.length === 0)) await wait;
     if (finished) return;
+    if (state.partial !== '') {
+      const text = state.partial;
+      state.turns.push(text);
+      state.partial = '';
+      push({ type: 'final', segmentId: state.segmentId, text });
+      push({ type: 'turn_end', text, at: 0 });
+    }
     const width = format.sampleRate * format.channels * 2;
     const inputSeconds = width > 0 ? state.bytes / width : 0;
     push({
@@ -228,13 +308,15 @@ async function onMessage(
   data: unknown,
   state: TurnState,
   push: (event: TranscriptionEvent) => void,
-  wake: (() => void) | undefined
+  wake: (() => void) | undefined,
+  commit: () => void
 ) {
   try {
     const parsed = JSON.parse(await messageText(data)) as unknown;
     if (!isRecord(parsed)) throw new Error('Realtime transcription event was not JSON');
     applyEvent(parsed, state, push);
-    if (state.failed || (state.audioDone && state.turns.length > 0)) wake?.();
+    if (state.audioDone && state.speaking && !state.stopped && !state.committing) commit();
+    if (state.failed || (state.audioDone && state.settled > 0 && !inFlight(state))) wake?.();
   } catch (error) {
     const voice = asVoiceError(error);
     state.failed = true;
