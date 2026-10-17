@@ -25,6 +25,8 @@ interface TurnState {
   failed: boolean;
   vad: boolean;
   speaking: boolean;
+  stopped: boolean;
+  settled: number;
   committing: boolean;
   flushed: boolean;
   pending: Set<string>;
@@ -38,6 +40,7 @@ function inFlight(state: TurnState): boolean {
 
 function settle(state: TurnState, item: string | undefined) {
   const key = item === undefined ? '0' : item;
+  state.settled += 1;
   if (state.pending.has(key)) state.pending.delete(key);
   else {
     state.committing = false;
@@ -103,11 +106,12 @@ function applyTurnEvent(
   if (type === 'input_audio_buffer.speech_started') {
     const at = numberField(event, 'audio_start_ms');
     state.speaking = true;
+    state.stopped = false;
     push({ type: 'speech_start', at: at === undefined ? 0 : at });
     return true;
   }
   if (type === 'input_audio_buffer.speech_stopped') {
-    state.speaking = false;
+    state.stopped = true;
     return true;
   }
   if (type === 'input_audio_buffer.committed') {
@@ -211,6 +215,8 @@ async function pumpListen(
     failed: false,
     vad: model.turnDetection !== 'none',
     speaking: false,
+    stopped: false,
+    settled: 0,
     committing: false,
     flushed: false,
     pending: new Set(),
@@ -266,8 +272,8 @@ async function pumpListen(
       );
     }
     state.audioDone = true;
-    if (!state.vad || state.speaking) commit();
-    if (!finished && (inFlight(state) || state.turns.length === 0)) {
+    if (!state.vad || (state.speaking && !state.stopped)) commit();
+    if (!finished && (inFlight(state) || state.settled === 0)) {
       const timeout = options?.drainTimeoutMs ?? DRAIN_TIMEOUT_MS;
       const timer = setTimeout(() => wake?.(), timeout);
       await wait;
@@ -309,8 +315,8 @@ async function onMessage(
     const parsed = JSON.parse(await messageText(data)) as unknown;
     if (!isRecord(parsed)) throw new Error('Realtime transcription event was not JSON');
     applyEvent(parsed, state, push);
-    if (state.audioDone && state.speaking && !state.committing) commit();
-    if (state.failed || (state.audioDone && state.turns.length > 0 && !inFlight(state))) wake?.();
+    if (state.audioDone && state.speaking && !state.stopped && !state.committing) commit();
+    if (state.failed || (state.audioDone && state.settled > 0 && !inFlight(state))) wake?.();
   } catch (error) {
     const voice = asVoiceError(error);
     state.failed = true;

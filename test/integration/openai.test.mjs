@@ -124,12 +124,12 @@ function gatedAudio() {
   return { audio: audio(), end: gate.resolve };
 }
 
-async function vadSession(options) {
+async function vadSession(options, id = 'gpt-realtime-whisper') {
   const release = registerOpenAI();
   const previous = globalThis.WebSocket;
   globalThis.WebSocket = FakeSocket;
   FakeSocket.latest = undefined;
-  const model = getVoiceModel('transcription', 'openai', 'gpt-realtime-whisper');
+  const model = getVoiceModel('transcription', 'openai', id);
   const { audio, end } = gatedAudio();
   const events = [];
   const pending = (async () => {
@@ -263,8 +263,10 @@ test('listen emits what it heard when the drain times out', async () => {
     say({ type: 'input_audio_buffer.speech_started', item_id: 'b' });
     say({ type: 'conversation.item.input_audio_transcription.delta', item_id: 'b', delta: 'half' });
     await new Promise((resolve) => setTimeout(resolve, 5));
+    const ended = performance.now();
     session.end();
     const events = await session.pending;
+    assert.ok(performance.now() - ended >= 15);
     const tail = events.slice(-3).map((event) => [event.type, event.text]);
     assert.deepEqual(tail, [
       ['final', 'half'],
@@ -272,6 +274,73 @@ test('listen emits what it heard when the drain times out', async () => {
       ['done', undefined],
     ]);
     assert.equal(events.at(-1).transcript.text, 'first half');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen waits for a turn whose speech stopped but is not yet committed', async () => {
+  const session = await vadSession();
+  try {
+    const { socket, say } = session;
+    say({ type: 'input_audio_buffer.committed', item_id: 'a' });
+    say({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'a',
+      transcript: 'one',
+    });
+    say({ type: 'input_audio_buffer.speech_started', item_id: 'b' });
+    say({ type: 'input_audio_buffer.speech_stopped', item_id: 'b' });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    session.end();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(commits(socket), 0);
+    assert.equal(
+      session.events.some((event) => event.type === 'done'),
+      false
+    );
+    say({ type: 'input_audio_buffer.committed', item_id: 'b' });
+    say({
+      type: 'conversation.item.input_audio_transcription.completed',
+      item_id: 'b',
+      transcript: 'two',
+    });
+    const events = await session.pending;
+    assert.equal(events.at(-1).transcript.text, 'one two');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen ends at once when the only turn fails to transcribe', async () => {
+  const session = await vadSession({ drainTimeoutMs: 5000 });
+  try {
+    const { say } = session;
+    say({ type: 'input_audio_buffer.speech_started', item_id: 'a' });
+    say({ type: 'input_audio_buffer.speech_stopped', item_id: 'a' });
+    say({ type: 'input_audio_buffer.committed', item_id: 'a' });
+    session.end();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const failed = performance.now();
+    say({ type: 'conversation.item.input_audio_transcription.failed', item_id: 'a' });
+    const events = await session.pending;
+    assert.ok(performance.now() - failed < 1000);
+    assert.equal(events.at(-1).transcript.text, '');
+  } finally {
+    session.restore();
+  }
+});
+
+test('listen reports an empty commit without turn detection', async () => {
+  const session = await vadSession({}, 'gpt-live-transcribe');
+  try {
+    const { socket, say } = session;
+    session.end();
+    await waitFor(() => commits(socket) === 1);
+    say({ type: 'error', error: { code: 'input_audio_buffer_commit_empty', message: 'empty' } });
+    const events = await session.pending;
+    assert.equal(events.at(-1).type, 'error');
+    assert.equal(events.at(-1).error, 'empty');
   } finally {
     session.restore();
   }
