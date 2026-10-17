@@ -13,3 +13,13 @@ test('the package ships type declarations next to its entry point', async () => 
   const types = await readFile(new URL('../../dist/types/index.d.ts', import.meta.url), 'utf8');
   assert.equal(typeof types, 'string');
 });
+
+test('the pi-ai peer pins the same version the suite is tested against', async () => {
+  const manifest = JSON.parse(
+    await readFile(new URL('../../package.json', import.meta.url), 'utf8')
+  );
+  assert.equal(
+    manifest.peerDependencies['@earendil-works/pi-ai'],
+    manifest.devDependencies['@earendil-works/pi-ai']
+  );
+});
