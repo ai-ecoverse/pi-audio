@@ -113,19 +113,19 @@
     "release": "semantic-release"
   },
   "devDependencies": {
-    "@ai-ecoverse/slicc-shared-web": "1.29.1",
+    "@ai-ecoverse/slicc-shared-web": "1.29.2",
     "@ai-ecoverse/wasm-webrtc-audio-processing": "2.1.0-2",
     "@biomejs/biome": "2.5.15",
     "@earendil-works/pi-ai": "1.3.0",
     "@earendil-works/pi-durable": "1.3.0",
-    "node-web-audio-api": "2.2.0",
-    "web-audio-api": "1.6.0",
     "@types/node": "24.19.2",
     "esbuild": "0.28.2",
     "lefthook": "2.2.2",
     "monocart-coverage-reports": "2.13.2",
+    "node-web-audio-api": "2.2.0",
     "semantic-release": "25.0.9",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "web-audio-api": "1.6.0"
   },
   "peerDependencies": {
     "@ai-ecoverse/wasm-webrtc-audio-processing": ">=2.1.0-1 <2.2.0",
