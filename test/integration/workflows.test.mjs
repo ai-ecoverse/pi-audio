@@ -11,13 +11,35 @@ test('ci.yml is the only workflow', () => {
   assert.deepEqual(readdirSync(new URL('.github/workflows/', root)), ['ci.yml']);
 });
 
-test('ci.yml calls the pipeline at the slicc-shared-web devDependency version', () => {
+const semver = (version) => version.split('.').map(Number);
+
+const pipelineFitsHarness = (ref, harness) => {
+  const [a, b] = [semver(ref), semver(harness)];
+  if (a[0] !== b[0]) return false;
+  for (let i = 1; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i];
+  }
+  return true;
+};
+
+test('pipelineFitsHarness accepts refs at or below the harness within its major', () => {
+  assert.equal(pipelineFitsHarness('2.8.5', '2.8.5'), true);
+  assert.equal(pipelineFitsHarness('2.8.4', '2.8.5'), true);
+  assert.equal(pipelineFitsHarness('2.7.9', '2.8.0'), true);
+  assert.equal(pipelineFitsHarness('2.8.6', '2.8.5'), false);
+  assert.equal(pipelineFitsHarness('2.9.0', '2.8.5'), false);
+  assert.equal(pipelineFitsHarness('1.9.9', '2.8.5'), false);
+  assert.equal(pipelineFitsHarness('3.0.0', '2.8.5'), false);
+});
+
+test('ci.yml calls the pipeline at or below the slicc-shared-web devDependency version', () => {
   const version = pkg.devDependencies['@ai-ecoverse/slicc-shared-web'];
   assert.match(version, /^2\.\d+\.\d+$/);
   const uses = ci.match(
-    /uses: ai-ecoverse\/slicc-shared-web\/\.github\/workflows\/pipeline\.yml@v(\S+)/
+    /uses: ai-ecoverse\/slicc-shared-web\/\.github\/workflows\/pipeline\.yml@v(\d+\.\d+\.\d+)\s/
   );
-  assert.equal(uses?.[1], version);
+  assert.ok(uses);
+  assert.ok(pipelineFitsHarness(uses[1], version), `pipeline v${uses[1]} needs harness >= it`);
   assert.match(ci, /^ {4}secrets: inherit$/m);
 });
 
