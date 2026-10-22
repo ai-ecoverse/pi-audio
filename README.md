@@ -162,7 +162,7 @@ npm test
 
 ## Releases
 
-Every push to `main` runs semantic-release, which reads the conventional commit messages, tags the version and writes the GitHub release. A second job then publishes the tag to npm through trusted publishing (OIDC), with provenance, from GitHub-hosted runners. Nothing is published from a branch or from a laptop.
+CI is one workflow, `.github/workflows/ci.yml`, which calls [slicc-shared-web's pipeline](https://github.com/ai-ecoverse/slicc-shared-web#pipeline): lint on every event, the integration tests and a Claude and a Codex review on pull requests, and the integration tests again in the merge queue. Every push to `main` then runs semantic-release, which reads the conventional commit messages, tags the version, publishes it to npm through trusted publishing (OIDC) from `ci.yml`, with provenance, and writes the GitHub release. Nothing is published from a branch or from a laptop.
 
 ## License
 
