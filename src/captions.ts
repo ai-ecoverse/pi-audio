@@ -54,7 +54,7 @@ export function spokenOffset(clock: SpokenClock, offsetMs: number): number {
     return clock.end;
   }
   const ratio = offsetMs <= 0 ? 0 : offsetMs / clock.durationMs;
-  const fraction = ratio > 1 ? 1 : ratio;
+  const fraction = Math.min(ratio, 1);
   return clock.start + Math.round(fraction * length);
 }
 
@@ -76,7 +76,7 @@ export function utteranceIndex(feedPos: number, maps: readonly UtteranceMap[]): 
   for (const map of maps) {
     if (map.kind !== 'answer') continue;
     if (feedPos <= map.spokenStart) break;
-    const end = feedPos < map.spokenEnd ? feedPos : map.spokenEnd;
+    const end = Math.min(feedPos, map.spokenEnd);
     upTo += end - map.spokenStart;
   }
   return upTo;
