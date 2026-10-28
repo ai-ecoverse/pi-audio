@@ -38,7 +38,7 @@ function codeAt(value: string, index: number): number {
 }
 
 function sextet(code: number): number {
-  return code < 0 ? 0 : code;
+  return Math.max(code, 0);
 }
 
 export function decodeAudioBase64(value: string): Uint8Array {
