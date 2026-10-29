@@ -115,7 +115,7 @@
     "@ai-ecoverse/wasm-webrtc-audio-processing": "2.1.0-2",
     "@biomejs/biome": "2.6.2",
     "@earendil-works/pi-ai": "1.3.0",
-    "@earendil-works/pi-durable": "1.3.0",
+    "@earendil-works/pi-durable": "1.4.0",
     "@types/node": "26.6.5",
     "esbuild": "0.28.2",
     "lefthook": "2.2.2",
