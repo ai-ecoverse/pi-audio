@@ -111,7 +111,7 @@
     "release": "semantic-release"
   },
   "devDependencies": {
-    "@ai-ecoverse/slicc-shared-web": "2.13.7",
+    "@ai-ecoverse/slicc-shared-web": "2.13.8",
     "@ai-ecoverse/wasm-webrtc-audio-processing": "2.1.0-2",
     "@biomejs/biome": "2.6.3",
     "@earendil-works/pi-ai": "1.4.0",
