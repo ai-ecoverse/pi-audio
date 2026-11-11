@@ -333,7 +333,7 @@ test('response.create waits for parallel tools and for the active response', asy
   }
 });
 
-test('a done output transcript spans only the unread suffix', async () => {
+test('output audio is emitted before the transcript arrives', async () => {
   const script = scripted();
   const unregister = registerOpenAIRealtime({ wire: script.factory });
   try {
@@ -346,21 +346,25 @@ test('a done output transcript spans only the unread suffix', async () => {
     const chunk = 'QQ==';
     script.server({ type: 'response.output_audio.delta', item_id: 'snap', delta: chunk });
     script.server({ type: 'response.output_audio.delta', item_id: 'snap', delta: chunk });
+    const first = (await events.next()).value;
+    const second = (await events.next()).value;
+    assert.equal(first.type, 'output_audio');
+    assert.equal(first.span, undefined);
+    assert.equal(second.type, 'output_audio');
+    assert.equal(second.span, undefined);
     script.server({
       type: 'response.output_audio_transcript.delta',
       item_id: 'snap',
       delta: 'Hi',
     });
-    assert.deepEqual((await events.next()).value.span, { itemId: 'snap', start: 0, end: 1 });
-    assert.deepEqual((await events.next()).value.span, { itemId: 'snap', start: 1, end: 2 });
     assert.equal((await events.next()).value.text, 'Hi');
     script.server({ type: 'response.output_audio.delta', item_id: 'snap', delta: chunk });
+    assert.equal((await events.next()).value.type, 'output_audio');
     script.server({
       type: 'response.output_audio_transcript.done',
       item_id: 'snap',
       transcript: 'Hi there',
     });
-    assert.deepEqual((await events.next()).value.span, { itemId: 'snap', start: 2, end: 8 });
     const snapshot = (await events.next()).value;
     assert.equal(snapshot.text, 'Hi there');
     assert.equal(snapshot.final, true);

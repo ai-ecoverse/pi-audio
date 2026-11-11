@@ -443,14 +443,13 @@ class GeminiSession implements RealtimeSession {
       format: this.#format,
       timestamp: 0,
     });
+    for (const event of takeAudio(this.#pending, this.#item, this.#format, undefined)) {
+      this.#push(event);
+    }
   }
 
   #transcript(delta: string, final: boolean): void {
-    const end = this.#pending.cursor + delta.length;
-    const tagged = delta.length === 0 ? undefined : end;
-    for (const event of takeAudio(this.#pending, this.#item, this.#format, tagged)) {
-      this.#push(event);
-    }
+    if (delta.length > 0) this.#pending.cursor += delta.length;
     this.#spoken += delta;
     this.#push({ type: 'output_transcript', itemId: this.#item, text: delta, final });
   }
