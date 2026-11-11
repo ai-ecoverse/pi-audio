@@ -102,12 +102,13 @@ test('openai realtime replays a tool round and truncates on barge-in', async () 
     assert.equal(script.sent.at(-1).type, 'response.create');
     script.server({ type: 'response.output_audio.delta', item_id: 'msg', delta: 'QQ==' });
     script.server({ type: 'response.output_audio.delta', item_id: 'msg', delta: 'Qg==' });
-    script.server({ type: 'response.output_audio_transcript.delta', item_id: 'msg', delta: 'Hi' });
     const first = (await events.next()).value;
     const second = (await events.next()).value;
     assert.equal(first.type, 'output_audio');
-    assert.deepEqual(first.span, { itemId: 'msg', start: 0, end: 1 });
-    assert.deepEqual(second.span, { itemId: 'msg', start: 1, end: 2 });
+    assert.equal(first.span, undefined);
+    assert.equal(second.type, 'output_audio');
+    assert.equal(second.span, undefined);
+    script.server({ type: 'response.output_audio_transcript.delta', item_id: 'msg', delta: 'Hi' });
     assert.equal((await events.next()).value.text, 'Hi');
     session.interrupt({ itemId: 'msg', heardMs: 20 });
     assert.equal(script.sent.at(-2).type, 'response.cancel');

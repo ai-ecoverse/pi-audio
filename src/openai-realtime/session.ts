@@ -427,6 +427,9 @@ class VendorSession implements RealtimeSession {
       format: this.#format,
       timestamp: 0,
     });
+    for (const event of takeAudio(pending, itemId, this.#format, undefined)) {
+      this.#push(event);
+    }
   }
 
   #armCreate(waitForCalls: boolean): void {
@@ -447,9 +450,7 @@ class VendorSession implements RealtimeSession {
   #transcript(itemId: string, value: string, final: boolean): void {
     const pending = this.#pendingFor(itemId);
     const addition = final ? value.slice(pending.cursor) : value;
-    const end = pending.cursor + addition.length;
-    const tagged = addition.length === 0 ? undefined : end;
-    for (const event of takeAudio(pending, itemId, this.#format, tagged)) this.#push(event);
+    if (addition.length > 0) pending.cursor += addition.length;
     this.#push({ type: 'output_transcript', itemId, text: value, final });
   }
 
