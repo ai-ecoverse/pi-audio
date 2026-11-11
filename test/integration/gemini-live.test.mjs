@@ -80,6 +80,10 @@ test('gemini live delivers an async tool when idle and resumes after goAway', as
     );
     const setup = script.connections[0].sent[0].setup;
     assert.equal(setup.model, 'models/gemini-3.8-live');
+    assert.equal(setup.speechConfig, undefined);
+    assert.deepEqual(setup.generationConfig.speechConfig, {
+      voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } },
+    });
     assert.deepEqual(setup.inputAudioTranscription.customVocabulary, ['ORD-8472']);
     assert.equal(setup.tools[0].functionDeclarations[0].behavior, undefined);
     assert.equal(setup.contextWindowCompression.slidingWindow.targetTokens, 80_000);

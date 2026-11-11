@@ -184,11 +184,13 @@ function setupBody(
 ): JsonObject {
   const setup: JsonObject = {
     model: `models/${model.id}`,
-    generationConfig: { responseModalities: ['AUDIO'] },
-    systemInstruction: { parts: [{ text: context.instructions }] },
-    speechConfig: {
-      voiceConfig: { prebuiltVoiceConfig: { voiceName: context.voice } },
+    generationConfig: {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: context.voice } },
+      },
     },
+    systemInstruction: { parts: [{ text: context.instructions }] },
     inputAudioTranscription: transcription(model, vocabulary),
     outputAudioTranscription: {},
     contextWindowCompression: {

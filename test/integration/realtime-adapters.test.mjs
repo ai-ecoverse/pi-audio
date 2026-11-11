@@ -71,6 +71,12 @@ test('openai realtime replays a tool round and truncates on barge-in', async () 
       { instructions: 'Be brief.', voice: 'marin', tools: [readTool] },
       { apiKey: 'sk-test' }
     );
+    assert.deepEqual(script.target.protocols, ['realtime']);
+    assert.equal(script.target.headers.Authorization, 'Bearer sk-test');
+    assert.equal(
+      script.target.protocols.some((value) => value.startsWith('openai-insecure-api-key.')),
+      false
+    );
     const events = session[Symbol.asyncIterator]();
     script.server({ type: 'session.created', session: { id: 'sess' } });
     assert.equal((await events.next()).value.sessionId, 'sess');

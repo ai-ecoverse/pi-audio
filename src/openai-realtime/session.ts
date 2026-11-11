@@ -63,6 +63,12 @@ function headersFor(
   return headers;
 }
 
+export function socketAllowsHeaders(
+  global: { document?: unknown } = globalThis as { document?: unknown }
+): boolean {
+  return global.document === undefined;
+}
+
 function sessionUrl(model: RealtimeModel<string>, resumeHandle: string | undefined): string {
   const params = new URLSearchParams({ model: model.id });
   if (resumeHandle !== undefined) params.set('conversation_id', resumeHandle);
@@ -594,16 +600,19 @@ export async function connectVendorSession(
   const secret = credential(options);
   const token = options?.token?.value;
   const ephemeral = typeof token === 'string' && token.length > 0;
+  const headerAuth = vendor.dialect === 'openai' ? socketAllowsHeaders() : !ephemeral;
   const protocols: string[] = [];
-  if (vendor.dialect === 'openai') protocols.push(`openai-insecure-api-key.${secret}`, 'realtime');
-  else if (ephemeral) protocols.push(`xai-client-secret.${secret}`);
+  if (vendor.dialect === 'openai') {
+    if (headerAuth) protocols.push('realtime');
+    else protocols.push(`openai-insecure-api-key.${secret}`, 'realtime');
+  } else if (ephemeral) protocols.push(`xai-client-secret.${secret}`);
   else protocols.push('realtime');
   const resumeHandle = vendor.dialect === 'xai' ? options?.resumeHandle : undefined;
   const socket = realtimeSocket(sessionUrl(model, resumeHandle), options, protocols);
   const target: VoiceWireTarget = {
     url: socket.url,
     protocols: socket.protocols,
-    headers: headersFor(options, secret, vendor.dialect === 'openai' || !ephemeral),
+    headers: headersFor(options, secret, headerAuth),
   };
   const open =
     vendor.wire !== undefined
