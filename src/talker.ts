@@ -1,10 +1,4 @@
-import {
-  type JsonObject,
-  type Tool,
-  type ToolCall,
-  type ToolResultMessage,
-  Type,
-} from '@earendil-works/pi-ai';
+import type { JsonObject, Tool, ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import { VoiceRequestError } from './errors.ts';
 import type { Delivery } from './models.ts';
 import type { RealtimeSession } from './realtime.ts';
@@ -17,10 +11,15 @@ export const askAgent: Tool = {
   name: 'ask_agent',
   description:
     'Hand a request to the coding agent. Use for anything that needs files, the browser, tools or more than a few seconds of thought.',
-  parameters: Type.Object({
-    request: Type.String(),
-    context: Type.Optional(Type.String()),
-  }),
+  parameters: {
+    type: 'object',
+    properties: {
+      request: { type: 'string' },
+      context: { type: 'string' },
+    },
+    required: ['request'],
+    additionalProperties: false,
+  },
 };
 
 export type ThinkerUpdate =

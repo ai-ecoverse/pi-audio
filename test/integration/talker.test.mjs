@@ -17,6 +17,19 @@ function message(id, text) {
   };
 }
 
+test('askAgent parameters are plain JSON Schema without TypeBox', () => {
+  assert.deepEqual(askAgent.parameters, {
+    type: 'object',
+    properties: {
+      request: { type: 'string' },
+      context: { type: 'string' },
+    },
+    required: ['request'],
+    additionalProperties: false,
+  });
+  assert.equal(Object.getOwnPropertySymbols(askAgent.parameters).length, 0);
+});
+
 test('bindThinker treats blocking and async ask_agent calls the same for the thinker', async () => {
   assert.deepEqual(talkerTools, ['ask_agent', 'read']);
   const reports = [];
